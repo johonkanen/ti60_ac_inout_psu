@@ -33,7 +33,8 @@ entity scope_subsystem is
         control_probes  : in scope_sample_array(0 to 1);
         sdm_midpoint    : in scope_sample;
         dhb_probe     : in scope_sample;
-        output_probe  : in scope_sample
+        output_probe  : in scope_sample;
+        input_probe   : in scope_sample
     );
 end entity scope_subsystem;
 
@@ -42,7 +43,7 @@ architecture rtl of scope_subsystem is
     constant scope_base : natural := 600;
 
     -- probes: add a signal with a line below and its entry in probe_table
-    constant probe_count : natural := 25;
+    constant probe_count : natural := 26;
     signal probes        : scope_sample_array(0 to probe_count-1) := (others => (others => '0'));
     -- names: 16 characters at most
     constant probe_table : probe_table_array(0 to probe_count-1) := (
@@ -70,7 +71,8 @@ architecture rtl of scope_subsystem is
         21 => probe_entry("observer iload", signed_probe),
         22 => probe_entry("control i_ref", signed_probe),
         23 => probe_entry("control u_ref", signed_probe),
-        24 => probe_entry("iac_out midpoint", signed_probe));
+        24 => probe_entry("iac_out midpoint", signed_probe),
+        25 => probe_entry("input test", digital_probe));
     signal counter       : unsigned(31 downto 0) := (others => '0');
 
     signal capture_reset, capture_write, capture_flush : boolean;
@@ -104,6 +106,7 @@ begin
     probes(18 to 21) <= observer_probes;   -- 256 counts an ampere, 64 a volt
     probes(22 to 23) <= control_probes;    -- 256 counts an ampere, 64 a volt
     probes(24) <= sdm_midpoint;     -- the output current at the middles of its rise and fall
+    probes(25) <= input_probe;      -- lane 0 running, 1 the switch on, 2 stopped at the overvoltage
 
     u_scope : entity work.scope_capture
     generic map(g_base_address => scope_base, g_depth => 4096, g_deep_records => 2**22,

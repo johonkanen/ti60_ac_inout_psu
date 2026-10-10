@@ -51,7 +51,7 @@ begin
     port map(clock, bus_to_scope, bus_from_scope, tvalid, tready, tdata, tkeep, tlast,
              status => x"a5a5", sec_positions => (others => x"0042"),
              pri_positions => (others => x"0043"),
-             sdm_results => (others => x"ff44"), sdm_means => (others => x"ff40"), sdm_sampled => (others => x"ff3c"), observer_probes => (others => x"0011"), control_probes => (others => x"0022"), sdm_midpoint => x"0044", dhb_probe => x"0001", output_probe => x"0001");
+             sdm_results => (others => x"ff44"), sdm_means => (others => x"ff40"), sdm_sampled => (others => x"ff3c"), observer_probes => (others => x"0011"), control_probes => (others => x"0022"), sdm_midpoint => x"0044", dhb_probe => x"0001", output_probe => x"0001", input_probe => x"0001");
 
     -- the DMA: not ready one clock in four
     dma : process(clock)
@@ -198,11 +198,11 @@ begin
     begin
         test_runner_setup(runner, runner_cfg);
 
-        -- information: 4096 deep, 8 channels, 8 + 25 sources
+        -- information: 4096 deep, 8 channels, 8 + 26 sources
         read_register(scope + 8, value);
         check_equal(to_integer(value(15 downto 0)), 4096, "depth");
         check_equal(to_integer(value(23 downto 16)), 8, "channels");
-        check_equal(to_integer(value(31 downto 24)), 33, "sources");
+        check_equal(to_integer(value(31 downto 24)), 34, "sources");
 
         write_register(scope + 1, 3);
         read_register(scope + 1, value);

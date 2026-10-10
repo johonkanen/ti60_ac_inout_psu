@@ -70,6 +70,7 @@
         <efx:design_file name="../source/inverter/voltage_modulator.vhd" version="default" library="default" />
         <efx:design_file name="../source/inverter/waveform_player.vhd" version="default" library="default" />
         <efx:design_file name="output_bridge_test.vhd" version="default" library="default" />
+        <efx:design_file name="input_bridge_test.vhd" version="default" library="default" />
         <efx:design_file name="image_role_pkg.vhd" version="default" library="default" />
         <efx:design_file name="remote_update/remote_update.vhd" version="default" library="default" />
         <efx:design_file name="tsemac_soc_top.vhd" version="default" library="default" />

@@ -39,7 +39,9 @@ library ieee;
 --   output_control_processor
 --                       the output filter's observer (1160..) and the output voltage's
 --                       cascaded control (1180..) on a microprogram processor
--- The input bridge's gate drives and the relays are held low.
+--   input_bridge_test   the input bridge's polarity test: one switch at a time in bursts
+--                       (1240..)
+-- The relays are held low.
 -- The transmit stream fills in IPv4, TCP, UDP and ICMP checksums on its way to the MAC
 -- (ethernet/ethernet_subsystem.vhd, ethernet/tx_checksum_inserter.vhd).
 -- Gigabit only: the PHY is set to advertise 1000BASE-T alone, so there is no 10/100 receive
@@ -189,6 +191,10 @@ architecture rtl of tsemac_soc_top is
     signal bus_from_output_control : fpga_interconnect_record := init_fpga_interconnect;
     signal bus_from_waveform    : fpga_interconnect_record := init_fpga_interconnect;
     signal output_active        : boolean;
+    signal bus_from_input       : fpga_interconnect_record := init_fpga_interconnect;
+    signal input_leg1, input_leg2 : dhb_leg_gates;
+    signal input_probe          : scope_sample;
+    signal primary_dc_voltage   : fixed_number := fixed_zero;
     signal waveform_ref         : fixed_number;
     signal waveform_finished, waveform_start, waveform_step : boolean;
     signal output_running       : boolean;
@@ -320,7 +326,7 @@ begin
     bus_from_slaves <= bus_from_scope and bus_from_adc and bus_from_update and bus_from_gate_power
                        and bus_from_dhb and bus_from_scaler and bus_from_dhb_control
                        and bus_from_protection and bus_from_output and bus_from_output_control
-                       and bus_from_waveform;
+                       and bus_from_waveform and bus_from_input;
 ------------------------------------------------------------------------
     -- the golden or application image (image_role_pkg, written by build.sh), and switching
     -- between them, registers at 800..
@@ -361,6 +367,7 @@ begin
         ,sdm_midpoint    => sdm_midpoint
         ,dhb_probe     => dhb_probe
         ,output_probe  => output_probe
+        ,input_probe   => input_probe
     );
 ------------------------------------------------------------------------
     u_adc : entity work.ad_subsystem
@@ -516,6 +523,31 @@ begin
         ,probe   => output_probe
     );
 
+    -- the primary DC link's voltage, from the measurement scaler as it comes
+    process(io_tseClk)
+    begin
+        if rising_edge(io_tseClk) then
+            if scaled_ready and scaled_channel = scaled_vdc_in then
+                primary_dc_voltage <= scaled(scaled_vdc_in);
+            end if;
+        end if;
+    end process;
+
+    -- the input bridge's polarity test (input_bridge_test.vhd, registers at 1240..): one switch
+    -- at a time pulsing for a burst, off at the overvoltage stop or a trip
+    u_input_test : entity work.input_bridge_test
+    generic map(g_base_address => 1240)
+    port map(
+        clock       => io_tseClk
+        ,bus_in     => bus_to_slaves
+        ,bus_out    => bus_from_input
+        ,trip       => dhb_trip
+        ,dc_voltage => primary_dc_voltage
+        ,leg1       => input_leg1
+        ,leg2       => input_leg2
+        ,probe      => input_probe
+    );
+
     -- the output voltage's arbitrary waveform (registers 1200..): a table of 512 points, the
     -- closed loop's reference in the output test's waveform mode
     u_waveform : entity work.waveform_player
@@ -564,10 +596,10 @@ begin
     dab_primary_low        <= dhb_primary_gates.low;
     dab_secondary_hi       <= dhb_secondary_gates.high;
     dab_secondary_low      <= dhb_secondary_gates.low;
-    grid_inu_leg1_hi       <= '0';
-    grid_inu_leg1_low      <= '0';
-    grid_inu_leg2_hi       <= '0';
-    grid_inu_leg2_low      <= '0';
+    grid_inu_leg1_hi       <= input_leg1.high;
+    grid_inu_leg1_low      <= input_leg1.low;
+    grid_inu_leg2_hi       <= input_leg2.high;
+    grid_inu_leg2_low      <= input_leg2.low;
     primary_bypass_relay   <= '0';
     secondary_bypass_relay <= '0';
 ------------------------------------------------------------------------
