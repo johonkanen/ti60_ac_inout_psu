@@ -540,6 +540,11 @@ static void broadcast_status(void)
 	capture_input_state(input_state);
 	capture_boost_state(boost_state);
 	capture_touch_state(touch_state);
+	int touch_x = -1, touch_y = -1;
+
+	if (!panel_touch_pixels(touch_state, &touch_x, &touch_y)) {
+		touch_x = touch_y = -1;
+	}
 
 	k_mutex_lock(&scope_lock, K_FOREVER);
 	if (now - adc.at >= 500) {
@@ -568,7 +573,7 @@ static void broadcast_status(void)
 		 "\"control\":[%.3f,%.2f,%.2f,%.2f,%u,%u],\"waveform\":[%u,%u],"
 		 "\"input\":[%u,%u,%.3f,%.3f],"
 		 "\"boost\":[%u,%.3f,%.4f,%.3f,%.3f,%.3f,%.3f,%.2f,%u],"
-		 "\"touch\":[%u,%u,%u,%u]}",
+		 "\"touch\":[%u,%u,%u,%u,%d,%d,%u]}",
 		 status.state, status.captures, status.forced ? "true" : "false",
 		 status.running ? "true" : "false", stream_lost(), adc.rates[0], adc.rates[1],
 		 adc.sdm_rate, capture_gate_power_on(), copy_us, send_us, capture_dhb_status(),
@@ -585,7 +590,7 @@ static void broadcast_status(void)
 		 boost_state[0], capture_boost_value(0), capture_boost_value(1), capture_boost_value(2),
 		 capture_boost_value(3), capture_boost_value(4), capture_boost_value(5),
 		 capture_boost_value(6), boost_state[1], touch_state[0], touch_state[1],
-		 touch_state[2], touch_state[3]);
+		 touch_state[2], touch_state[3], touch_x, touch_y, panel_calibrating());
 	k_mutex_unlock(&scope_lock);
 
 	for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -771,6 +776,9 @@ static void handle_command(const char *message)
 			LOG_WRN("input boost: start, the link to %.1f V", capture_boost_value(6));
 			capture_boost_start();
 		}
+	} else if (json_string_is(message, "type", "touch_calibrate")) {
+		LOG_WRN("touch screen calibration started");
+		panel_calibrate();
 	} else if (json_string_is(message, "type", "boost_stop")) {
 		capture_boost_stop();
 	} else if (json_string_is(message, "type", "waveform_stop")) {

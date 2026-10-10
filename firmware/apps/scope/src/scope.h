@@ -252,6 +252,13 @@ void capture_touch_state(uint32_t state[4]);
 /* the commit the FPGA image was built from: bits 27..0 its hash's first 7 hex digits, bit 31 the
  * tree had changes */
 uint32_t capture_fpga_version(void);
+
+/* the face panel (panel.c): its screen kept up to date; the touch screen's calibration started
+ * (from any thread) and whether it runs; a touch's screen pixels, false when not calibrated */
+void panel_start(void);
+void panel_calibrate(void);
+bool panel_calibrating(void);
+bool panel_touch_pixels(const uint32_t touch[4], int *x, int *y);
 /* 0 the current reference, 1 the duty, 2 the input current, 3 the link, 4 the bridge's output
  * current, 5 the input's voltage, 6 v_ref */
 double capture_boost_value(int which);

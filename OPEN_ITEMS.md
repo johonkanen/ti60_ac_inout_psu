@@ -65,8 +65,10 @@ item when it is done; the commit that does it says so.
 - `lcd_display.vhd` (registers 1300) shows a screen of text: the IP address, the last touch,
   and the firmware's and the FPGA image's commits ("+": built from a changed tree).
   `touch_reader.vhd` (registers 1320) polls the touch controller (no pen interrupt connected;
-  its data out on GPIOR_22). To decide: what a touch does (on-screen buttons, pages of status);
-  the touch's raw 0..4095 readings are not yet calibrated to screen pixels.
+  its data out on GPIOR_22). The firmware's panel.c calibrates it to screen pixels
+  (`{"type": "touch_calibrate"}`: four "+" targets, an affine fit kept in flash). Next: a stop
+  button that works without the network (in the FPGA, straight from the touch), then start
+  buttons and a system state indicator.
 - Efinity numbers the bits of an unconstrained record field (the memory library's RAM output)
   the other way from the simulator: indexing a bit of it directly mirrored each character on
   the board while the testbench passed. Copy such a vector whole into a constrained one before

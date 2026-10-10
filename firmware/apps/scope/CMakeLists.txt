@@ -6,7 +6,7 @@ list(APPEND EXTRA_ZEPHYR_MODULES ${CMAKE_CURRENT_SOURCE_DIR}/../../module)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(scope)
 
-target_sources(app PRIVATE src/main.c src/scope.c)
+target_sources(app PRIVATE src/main.c src/scope.c src/panel.c)
 
 # the commit built (git_version.h for main.c's LCD line), looked at on every build
 set(GIT_VERSION_DIR ${CMAKE_CURRENT_BINARY_DIR}/git_version)
