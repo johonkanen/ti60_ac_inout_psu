@@ -89,8 +89,8 @@ def main():
         sys.exit('the board has no boost control (firmware without input_boost_control)')
     sources = [names.index(c) for c in CHANNELS]
     config = board.hello['config']
-    if status['dhb'][0] & 3 or status['output'][0] & 1 or status['input'][0] & 1:
-        sys.exit('the DHB, the output bridge or the input test is running')
+    if status['dhb'][0] & 3 or status['output'][0] & 1:
+        sys.exit('the DHB or the output bridge is running')
     print(f'the primary DC link {status["dc_links"][0]:.1f} V, the input {boost(status)["v_ac"]:.1f} V')
     if not args.yes:
         answer = input(f'Run the input boost: the link to {args.v_ref:g} V, then {args.step:g} V and back, '

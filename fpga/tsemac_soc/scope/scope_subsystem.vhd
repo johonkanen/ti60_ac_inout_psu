@@ -110,13 +110,12 @@ begin
 
     u_scope : entity work.scope_capture
     generic map(g_base_address => scope_base, g_depth => 4096, g_deep_records => 2**22,
-                g_probes => probe_count)
+                g_probes => probe_count, g_probe_table => probe_table)
     port map(
         clock            => clock,
         bus_in           => bus_in,
         bus_out          => bus_out,
         probes           => probes,
-        probe_table      => probe_table,
         read_address     => 0,
         read_data        => open,
         capture_reset    => capture_reset,

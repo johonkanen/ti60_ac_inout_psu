@@ -4,6 +4,7 @@ library ieee;
 
     use work.scope_pkg.all;
     use work.fpga_interconnect_pkg.all;
+    use work.dual_port_ram_pkg.all;
 
 -- Oscilloscope capture: scope_channels channels, each from one of the 8 + g_probes sources
 -- (the test generator, then the probes, see scope_pkg),
@@ -41,6 +42,8 @@ library ieee;
 --  17..20  R  name of the source, 16 characters, the first in bits 31:24 of register 17,
 --         unused characters are 0
 --  21  R  format of the source: 0 signed, 1 unsigned, 2 digital (bit n is lane n)
+--         (the names and formats are a block RAM, five words a source: a write of the index
+--         fetches them into 17..21, there within 16 clocks)
 --  22  R  deep capture: records the capture port has taken since the arm (capture_written),
 --         how far a continuous capture has got
 --
@@ -53,14 +56,14 @@ entity scope_capture is
         g_base_address : natural := 600;
         g_depth        : natural := 4096;   -- power of two
         g_deep_records : natural := 2**22;  -- power of two
-        g_probes       : natural range 1 to 247 := 8
+        g_probes       : natural range 1 to 56 := 8;     -- 64 sources at most (the names' RAM)
+        g_probe_table  : probe_table_array
     );
     port(
         clock        : in std_logic;
         bus_in       : in fpga_interconnect_record;
         bus_out      : out fpga_interconnect_record;
         probes       : in scope_sample_array(0 to g_probes-1);
-        probe_table  : in probe_table_array(0 to g_probes-1);
         -- capture readout in 32 bit words, data scope_read_latency clocks after the address
         read_address : in natural;
         read_data    : out std_logic_vector(31 downto 0);
@@ -95,13 +98,39 @@ architecture rtl of scope_capture is
     signal channel_sources_hi : std_logic_vector(31 downto 0) := x"07060504";
     signal trigger_pattern : std_logic_vector(31 downto 0) := (others => '0');
     signal probe_index     : std_logic_vector(31 downto 0) := (others => '0');
-    signal table_entry     : probe_table_entry := (others => '0');
+    -- the names' RAM: source s's words at s * 8 + 0..4 (four of its name, then its format)
+    type name_word_array is array (0 to 4) of std_logic_vector(31 downto 0);
+    signal name_words      : name_word_array := (others => (others => '0'));
+    signal fetch_word      : natural range 0 to 5 := 5;    -- 5: none under way
+    signal fetch_requested : boolean := false;
     signal previous_match  : boolean := true;
 
     constant generator_table : probe_table_array(0 to generator_sources-1) := (
         probe_entry("sine"), probe_entry("cosine"), probe_entry("triangle"), probe_entry("square"),
         probe_entry("sawtooth"), probe_entry("noise"), probe_entry("sine + noise"),
         probe_entry("counter", unsigned_probe));
+    function name_ram_init return ram_array is
+        variable words : ram_array(0 to 511)(31 downto 0) := (others => (others => '0'));
+        variable entry : probe_table_entry;
+    begin
+        for s in 0 to generator_sources + g_probes - 1 loop
+            if s < generator_sources then
+                entry := generator_table(s);
+            else
+                entry := g_probe_table(s - generator_sources);
+            end if;
+            for w in 0 to 3 loop
+                words(s * 8 + w) := entry(entry'left - 32 * w downto entry'left - 32 * w - 31);
+            end loop;
+            words(s * 8 + 4) := x"000000" & entry(7 downto 0);
+        end loop;
+        return words;
+    end function;
+
+    constant name_ram_subtype : dpram_ref_record := create_ref_subtypes(datawidth => 32, addresswidth => 9);
+    signal name_a_in, name_b_in   : name_ram_subtype.ram_in'subtype;
+    signal name_a_out, name_b_out : name_ram_subtype.ram_out'subtype;
+
     signal phase_increment : std_logic_vector(31 downto 0) := std_logic_vector(to_unsigned(2**32/100, 32));
     signal status          : std_logic_vector(31 downto 0) := (others => '0');
     signal information     : std_logic_vector(31 downto 0);
@@ -176,6 +205,11 @@ begin
     u_generator : entity work.test_signal_generator
     port map(clock, sample_enable, unsigned(phase_increment), generator);
 
+    u_names : entity work.dual_port_ram
+    generic map(g_dpram_subtype => name_ram_subtype, g_ram_init_values => name_ram_init, g_output_register => false)
+    port map(clock => clock, ram_a_in => name_a_in, ram_a_out => name_a_out,
+             ram_b_in => name_b_in, ram_b_out => name_b_out);
+
 ------------------------------------------------------------------------
     capture : process(clock)
         variable channel_index : natural range 0 to scope_channels-1;
@@ -215,20 +249,32 @@ begin
             connect_data_to_address          (bus_in, bus_out, g_base_address + 14, channel_sources_hi);
             connect_data_to_address          (bus_in, bus_out, g_base_address + 15, trigger_pattern);
             connect_data_to_address          (bus_in, bus_out, g_base_address + 16, probe_index);
-            for i in 0 to 3 loop
-                connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 17 + i,
-                    table_entry(table_entry'left - 32*i downto table_entry'left - 32*i - 31));
+            for i in 0 to 4 loop
+                connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 17 + i, name_words(i));
             end loop;
-            connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 21, x"000000" & table_entry(7 downto 0));
             connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 22, std_logic_vector(capture_written));
 
-            -- probe table readout
-            if to_integer(unsigned(probe_index(7 downto 0))) < generator_sources then
-                table_entry <= generator_table(to_integer(unsigned(probe_index(2 downto 0))));
-            elsif to_integer(unsigned(probe_index(7 downto 0))) < source_count then
-                table_entry <= probe_table(to_integer(unsigned(probe_index(7 downto 0))) - generator_sources);
-            else
-                table_entry <= (others => '0');
+            -- probe table readout: a new index's five words fetched from the names' RAM, one at
+            -- a time; an index past the sources reads zeros
+            init_ram(name_a_in);
+            init_ram(name_b_in);
+            if write_is_requested_to_address(bus_in, g_base_address + 16) then
+                name_words      <= (others => (others => '0'));
+                fetch_requested <= false;
+                if unsigned(get_slv_data(bus_in)) < source_count then
+                    fetch_word <= 0;
+                else
+                    fetch_word <= 5;
+                end if;
+            elsif fetch_word < 5 then
+                if not fetch_requested then
+                    request_data_from_ram(name_b_in, to_integer(unsigned(probe_index(5 downto 0))) * 8 + fetch_word);
+                    fetch_requested <= true;
+                elsif ram_read_is_ready(name_b_out) then
+                    name_words(fetch_word) <= get_ram_data(name_b_out);
+                    fetch_requested <= false;
+                    fetch_word      <= fetch_word + 1;
+                end if;
             end if;
 
             capture_reset <= false;

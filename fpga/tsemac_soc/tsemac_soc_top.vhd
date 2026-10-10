@@ -39,8 +39,6 @@ library ieee;
 --   output_control_processor
 --                       the output filter's observer (1160..) and the output voltage's
 --                       cascaded control (1180..) on a microprogram processor
---   input_bridge_test   the input bridge's polarity test: one switch at a time in bursts
---                       (1240..)
 -- The relays are held low.
 -- The transmit stream fills in IPv4, TCP, UDP and ICMP checksums on its way to the MAC
 -- (ethernet/ethernet_subsystem.vhd, ethernet/tx_checksum_inserter.vhd).
@@ -196,23 +194,19 @@ architecture rtl of tsemac_soc_top is
     signal bus_from_output_control : fpga_interconnect_record := init_fpga_interconnect;
     signal bus_from_waveform    : fpga_interconnect_record := init_fpga_interconnect;
     signal output_active        : boolean;
-    signal bus_from_input       : fpga_interconnect_record := init_fpga_interconnect;
     signal input_leg1, input_leg2 : dhb_leg_gates;
     signal input_probe          : scope_sample;
-    signal test_leg1, test_leg2 : dhb_leg_gates;
-    signal test_probe           : scope_sample;
     signal bus_from_boost       : fpga_interconnect_record := init_fpga_interconnect;
     signal boost_leg1, boost_leg2 : dhb_leg_gates;
     signal boost_probe, boost_i_ref_probe, boost_duty_probe : scope_sample;
-    signal boost_running, test_running : boolean;
+    signal boost_running        : boolean;
     signal bus_from_lcd         : fpga_interconnect_record := init_fpga_interconnect;
     signal bus_from_touch       : fpga_interconnect_record := init_fpga_interconnect;
     signal bus_from_version     : fpga_interconnect_record := init_fpga_interconnect;
     constant panel_hold_clocks  : natural := 12500000;     -- 100 ms
     signal panel_stop, panel_stopping, panel_stop_dhb : boolean := false;
     signal panel_count          : natural range 0 to panel_hold_clocks := 0;
-    signal boost_inhibit, test_inhibit : boolean;
-    signal primary_dc_voltage   : fixed_number := fixed_zero;
+    signal boost_inhibit        : boolean;
     signal waveform_ref         : fixed_number;
     signal waveform_finished, waveform_start, waveform_step : boolean;
     signal output_running       : boolean;
@@ -344,7 +338,7 @@ begin
     bus_from_slaves <= bus_from_scope and bus_from_adc and bus_from_update and bus_from_gate_power
                        and bus_from_dhb and bus_from_scaler and bus_from_dhb_control
                        and bus_from_protection and bus_from_output and bus_from_output_control
-                       and bus_from_waveform and bus_from_input and bus_from_boost
+                       and bus_from_waveform and bus_from_boost
                        and bus_from_lcd and bus_from_touch and bus_from_version;
 ------------------------------------------------------------------------
     -- the golden or application image (image_role_pkg, written by build.sh), and switching
@@ -544,36 +538,9 @@ begin
         ,stop_in => panel_stop
     );
 
-    -- the primary DC link's voltage, from the measurement scaler as it comes
-    process(io_tseClk)
-    begin
-        if rising_edge(io_tseClk) then
-            if scaled_ready and scaled_channel = scaled_vdc_in then
-                primary_dc_voltage <= scaled(scaled_vdc_in);
-            end if;
-        end if;
-    end process;
-
-    -- the input bridge's polarity test (input_bridge_test.vhd, registers at 1240..): one switch
-    -- at a time pulsing for a burst, off at the overvoltage stop or a trip
-    u_input_test : entity work.input_bridge_test
-    generic map(g_base_address => 1240)
-    port map(
-        clock       => io_tseClk
-        ,bus_in     => bus_to_slaves
-        ,bus_out    => bus_from_input
-        ,trip       => dhb_trip
-        ,dc_voltage => primary_dc_voltage
-        ,leg1       => test_leg1
-        ,leg2       => test_leg2
-        ,probe      => test_probe
-        ,inhibit    => test_inhibit
-    );
-
     -- the input bridge as a boost converter from a DC source (input_boost_control.vhd, registers
     -- at 1260..): only leg 2's low side switching, the link's voltage held by a slow voltage PI on
-    -- the bridge's output current (iac_in * vac_in / vdc_in). It and the polarity test inhibit
-    -- each other, so at most one drives the bridge.
+    -- the bridge's output current (iac_in * vac_in / vdc_in)
     u_input_boost : entity work.input_boost_control
     generic map(g_base_address => 1260)
     port map(
@@ -592,7 +559,6 @@ begin
         ,duty_probe     => boost_duty_probe
         ,probe          => boost_probe
     );
-    test_running <= test_probe(0) = '1';
 
     -- the face panel's LCD (lcd_display.vhd, registers at 1300..): a screen of text, set up and
     -- drawn at start, its text written and redrawn by the software (the IP address)
@@ -638,7 +604,7 @@ begin
     -- the face panel's stop button (touch_reader's stop_out, a clock's pulse), whatever the
     -- software or the network do: the output bridge stopped as by its stop (a closed loop
     -- brought down first), the DHB once the output has stopped (or after 50 ms at most), the
-    -- input boost and the polarity test held off for 100 ms
+    -- input boost held off for 100 ms
     process(io_tseClk)
     begin
         if rising_edge(io_tseClk) then
@@ -655,12 +621,11 @@ begin
             panel_stop_dhb <= panel_stopping and (not output_active or panel_count >= panel_hold_clocks / 2);
         end if;
     end process;
-    boost_inhibit <= test_running or panel_stopping;
-    test_inhibit  <= boost_running or panel_stopping;
-    input_leg1  <= (high => test_leg1.high or boost_leg1.high, low => test_leg1.low or boost_leg1.low);
-    input_leg2  <= (high => test_leg2.high or boost_leg2.high, low => test_leg2.low or boost_leg2.low);
-    -- the scope's "input test": lanes 0..2 the polarity test's, 4 the boost running, 5 its switch on
-    input_probe <= test_probe or boost_probe;
+    boost_inhibit <= panel_stopping;
+    input_leg1  <= boost_leg1;
+    input_leg2  <= boost_leg2;
+    -- the scope's "input test": lane 4 the boost running, 5 its switch on
+    input_probe <= boost_probe;
 
     -- the output voltage's arbitrary waveform (registers 1200..): a table of 512 points, the
     -- closed loop's reference in the output test's waveform mode

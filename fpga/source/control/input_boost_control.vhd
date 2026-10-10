@@ -46,7 +46,7 @@ library ieee;
 -- limits: the anti-windup), reset at a start.
 --
 -- A run stops at once (all gates off: the link keeps its charge) on stop, the protection's trip,
--- inhibit (the polarity test running), the link above the overvoltage stop, or the watchdog: no
+-- inhibit (the face panel's STOP button), the link above the overvoltage stop, or the watchdog: no
 -- kick for its time while running. Stopping needs no ramp: the boost only adds charge.
 --
 -- register map, offsets from g_base_address; values with 20 fractional bits
@@ -86,7 +86,7 @@ entity input_boost_control is
         scaled_ready   : in boolean;
         scaled_channel : in natural;
         trip           : in boolean;
-        inhibit        : in boolean;      -- the polarity test running: no boost meanwhile
+        inhibit        : in boolean;      -- the face panel's STOP: no boost meanwhile
         running_out    : out boolean;
         leg1           : out dhb_leg_gates;
         leg2           : out dhb_leg_gates;

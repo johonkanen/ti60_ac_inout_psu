@@ -325,23 +325,6 @@ void capture_output_kick(void)
 {
 }
 
-void capture_input_test(uint32_t which, double duty, uint32_t periods, double limit)
-{
-	ARG_UNUSED(which);
-	ARG_UNUSED(duty);
-	ARG_UNUSED(periods);
-	ARG_UNUSED(limit);
-}
-
-void capture_input_stop(void)
-{
-}
-
-void capture_input_state(uint32_t state[4])
-{
-	state[0] = state[1] = state[2] = state[3] = 0;
-}
-
 void capture_lcd_text(uint32_t place, const char *text)
 {
 	ARG_UNUSED(place);

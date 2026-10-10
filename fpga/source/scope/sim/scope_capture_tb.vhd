@@ -45,8 +45,9 @@ begin
     clock <= not clock after 4 ns;
 
     u_scope : entity work.scope_capture
-    generic map(g_base_address => base, g_depth => depth, g_deep_records => deep_records, g_probes => 8)
-    port map(clock, bus_in, bus_out, probes, probe_table, read_address, read_data,
+    generic map(g_base_address => base, g_depth => depth, g_deep_records => deep_records, g_probes => 8,
+                g_probe_table => probe_table)
+    port map(clock, bus_in, bus_out, probes, read_address, read_data,
              capture_reset, capture_write, capture_data, capture_flush, capture_is_full,
              capture_is_ready, capture_written);
 
@@ -277,11 +278,13 @@ begin
                 check_equal(to_integer(unsigned(status(31 downto 24))), 16, "sources");
                 -- a generator source, a probe and an unused index
                 bus_write(base + 16, 7);
+                wait for 200 ns;     -- the names' RAM fetch
                 bus_read(base + 17, status);
                 check_equal(status, std_logic_vector'(x"636F756E"), "name of source 7 starts with coun");
                 bus_read(base + 21, status);
                 check_equal(to_integer(unsigned(status)), unsigned_probe, "format of the generator counter");
                 bus_write(base + 16, 8 + 7);
+                wait for 200 ns;
                 bus_read(base + 17, status);
                 check_equal(status, std_logic_vector'(x"6C616E65"), "lane");
                 bus_read(base + 18, status);
@@ -289,6 +292,7 @@ begin
                 bus_read(base + 21, status);
                 check_equal(to_integer(unsigned(status)), digital_probe, "digital format");
                 bus_write(base + 16, 200);
+                wait for 200 ns;
                 bus_read(base + 17, status);
                 check_equal(status, std_logic_vector'(x"00000000"), "no source 200");
 

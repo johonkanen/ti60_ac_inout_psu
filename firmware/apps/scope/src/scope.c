@@ -533,11 +533,9 @@ static void broadcast_status(void)
 	int64_t now = k_uptime_get();
 
 	last_status = now;
-	uint32_t input_state[4];
 	uint32_t boost_state[2];
 	uint32_t touch_state[4];
 
-	capture_input_state(input_state);
 	capture_boost_state(boost_state);
 	capture_touch_state(touch_state);
 	int touch_x = -1, touch_y = -1;
@@ -571,7 +569,6 @@ static void broadcast_status(void)
 		 "\"dhb_control\":[%.5f,%d,%u],\"dhb_trip\":[%u,%.3f,%.2f],\"dhb_filtered\":[%.2f,%.2f],"
 		 "\"output\":[%u,%u],\"observer\":[%.3f,%.2f,%.2f,%.3f,%u],"
 		 "\"control\":[%.3f,%.2f,%.2f,%.2f,%u,%u],\"waveform\":[%u,%u],"
-		 "\"input\":[%u,%u,%.3f,%.3f],"
 		 "\"boost\":[%u,%.3f,%.4f,%.3f,%.3f,%.3f,%.3f,%.2f,%u],"
 		 "\"touch\":[%u,%u,%u,%u,%d,%d,%u,%u]}",
 		 status.state, status.captures, status.forced ? "true" : "false",
@@ -585,8 +582,7 @@ static void broadcast_status(void)
 		 capture_observer(1), capture_observer(2), capture_observer(3), capture_observer_steps(),
 		 capture_control(0), capture_control(1), capture_control(2), capture_control(3),
 		 capture_control_flags(), capture_control_steps(), waveform_loaded,
-		 capture_waveform_status(), input_state[0], input_state[1],
-		 (int32_t)input_state[2] / 1048576.0, (int32_t)input_state[3] / 1048576.0,
+		 capture_waveform_status(),
 		 boost_state[0], capture_boost_value(0), capture_boost_value(1), capture_boost_value(2),
 		 capture_boost_value(3), capture_boost_value(4), capture_boost_value(5),
 		 capture_boost_value(6), boost_state[1], touch_state[0], touch_state[1],
@@ -738,19 +734,6 @@ static void handle_command(const char *message)
 		LOG_WRN("output bridge closed loop on the waveform armed: %u periods%s",
 			(uint32_t)periods, periods < 1 ? " (until stopped)" : "");
 		capture_output_waveform_test((uint32_t)CLAMP(periods, 0.0, 1073741824.0));
-	} else if (json_string_is(message, "type", "input_test")) {
-		double which = 0, duty = 0.1, periods = 400, limit = 120.0;
-
-		json_number(message, "switch", &which);
-		json_number(message, "duty", &duty);
-		json_number(message, "periods", &periods);
-		json_number(message, "limit", &limit);
-		LOG_WRN("input bridge test: switch %u at duty %.3f for %u periods, stop at %.1f V",
-			(uint32_t)which, duty, (uint32_t)periods, limit);
-		capture_input_test((uint32_t)CLAMP(which, 0.0, 3.0), CLAMP(duty, 0.0, 0.2),
-				   (uint32_t)CLAMP(periods, 1.0, 4000.0), CLAMP(limit, 0.0, 450.0));
-	} else if (json_string_is(message, "type", "input_stop")) {
-		capture_input_stop();
 	} else if (json_string_is(message, "type", "boost_start") ||
 		   json_string_is(message, "type", "boost_set")) {
 		/* the settings given (each limited); boost_start then starts it (when stopped),

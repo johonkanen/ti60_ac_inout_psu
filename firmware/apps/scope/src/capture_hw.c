@@ -625,33 +625,6 @@ uint32_t capture_output_status(void)
 	return sys_read32(OUTPUT_REGISTER(0)) & 15;
 }
 
-/* input_bridge_test.vhd's registers at 1240: 0 start/stop and state, 1 the switch, 2 the duty,
- * 3 the burst's periods, 4 the overvoltage stop, 5 periods run, 6 and 7 the link at the start and
- * its highest */
-#define INPUT_REGISTER(r) (REGISTERS + 4 * 1240 + 4 * (r))
-
-void capture_input_test(uint32_t which, double duty, uint32_t periods, double limit)
-{
-	sys_write32(which & 3, INPUT_REGISTER(1));
-	sys_write32(to_fixed(duty), INPUT_REGISTER(2));
-	sys_write32(periods, INPUT_REGISTER(3));
-	sys_write32(to_fixed(limit), INPUT_REGISTER(4));
-	sys_write32(BIT(0), INPUT_REGISTER(0));
-}
-
-void capture_input_stop(void)
-{
-	sys_write32(BIT(1), INPUT_REGISTER(0));
-}
-
-void capture_input_state(uint32_t state[4])
-{
-	state[0] = sys_read32(INPUT_REGISTER(0)) & 7;
-	state[1] = sys_read32(INPUT_REGISTER(5));
-	state[2] = sys_read32(INPUT_REGISTER(6));
-	state[3] = sys_read32(INPUT_REGISTER(7));
-}
-
 /* input_boost_control.vhd's registers at 1260 (scope.h) */
 #define BOOST_REGISTER(r) (REGISTERS + 4 * 1260 + 4 * (r))
 
@@ -827,6 +800,7 @@ int capture_init(void)
 		name[0] = '\0';
 		if (s < count) {
 			reg_write(REG_PROBE_INDEX, s);
+			k_busy_wait(1);     /* its words fetched from the names' block RAM */
 			for (int w = 0; w < 4; w++) {
 				uint32_t word = reg_read(REG_PROBE_NAME + w);
 

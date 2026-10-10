@@ -19,8 +19,9 @@ item when it is done; the commit that does it says so.
      side current, iac_in * (vac_in / vdc_in), and the voltage loop slow (well below 100 Hz) so
      an AC input's 100 Hz ripple needs no new voltage controller.
 - iac_in's sign: a 1 MS/s capture shows the boost's current pulses as positive counts (the
-  firmware calibrates +256 counts/A), while the polarity test (`input_polarity_test.py`)
-  reported its period mean negative (-1.72 A). Unexplained; recheck after the capacitor.
+  firmware calibrates +256 counts/A), while the polarity test (`input_polarity_test.py`, removed
+  to make room in the FPGA: it is in the history up to 877ce86) reported its period mean
+  negative (-1.72 A). Unexplained; recheck after the capacitor.
 - The input inductance is not measured: about 10-15 uH from the current pulses' slopes. The
   primary DC link's 1.3 mF is an estimate from the polarity test's current reading, which is
   in doubt (above).
@@ -50,8 +51,12 @@ item when it is done; the commit that does it says so.
 - Plan: drive the DHB and the output bridge from one sawtooth carrier, both switching
   symmetrically, so the DC links and other ADC readings can be sampled where neither bridge
   switches. vfilt_out and vdc_out carry +-20-30 V of switching noise now.
-- The FPGA is about 94 % full (XLRs, with the face panel's driver and stop button); make room
-  before adding much more logic.
+- The FPGA is about 92 % full (XLRs) after removing the polarity test; make room before adding
+  much more logic. Where it goes (the build's hier_util report): the Sapphire SoC, Ethernet,
+  DMAs and HyperRAM ~44 %, the ADCs ~12 %, the scope ~9 % (nearly all its 8 x 34 source
+  multiplexer, kept for full sample rates), the power control ~25 %.
+- The scope's source names are a block RAM (4 blocks, saving only ~70 logic cells over the
+  logic ROM they replaced): if RAM runs out, put them back in logic to free those blocks.
 
 ## Waveform generator
 
@@ -69,7 +74,7 @@ item when it is done; the commit that does it says so.
   its data out on GPIOR_22). The firmware's panel.c calibrates it to screen pixels
   (`{"type": "touch_calibrate"}`: four "+" targets, an affine fit kept in flash).
 - The STOP button works in the FPGA alone (touch_reader's area, lcd_display's red rectangle):
-  the output brought down and stopped, the DHB after it, the input boost and polarity test off.
+  the output brought down and stopped, the DHB after it, the input boost off.
   Tested on the board in closed loop. Next: start buttons and a system state indicator.
 - Efinity numbers the bits of an unconstrained record field (the memory library's RAM output)
   the other way from the simulator: indexing a bit of it directly mirrored each character on

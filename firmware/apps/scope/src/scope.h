@@ -223,14 +223,6 @@ void capture_output_test(double before, double after, uint32_t step_periods, uin
  * the secondary DC link (voltage_modulator.vhd) */
 void capture_output_voltage_test(double before, double after, uint32_t step_periods, uint32_t periods);
 void capture_output_stop(void);
-/* the input bridge's polarity test (input_bridge_test.vhd): one switch (0 leg 1 low, 1 leg 2 low,
- * 2 leg 1 high, 3 leg 2 high) pulsing at duty (at most 0.2) for periods of 40 kHz, stopped at
- * once when the primary DC link passes limit (V) or on a trip; its state: [0] bit0 running,
- * bit1 stopped at the overvoltage, bit2 by a trip, [1] periods run, [2] the link at the start
- * and [3] its highest (V, as raw fixed point bits) */
-void capture_input_test(uint32_t which, double duty, uint32_t periods, double limit);
-void capture_input_stop(void);
-void capture_input_state(uint32_t state[4]);
 /* the input bridge as a boost converter (input_boost_control.vhd, registers at 1260): a setting
  * by its register (1 v_ref, 2 kp_v, 3 ki_v, 4 kp_i, 5 ki_i, 6 i_max, 7 d_max, 8 the overvoltage
  * stop, 16 the ramp V/ms), start (when stopped), stop, the watchdog's kick; its state: [0] the
