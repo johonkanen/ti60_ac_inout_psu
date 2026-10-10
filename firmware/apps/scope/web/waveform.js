@@ -51,6 +51,7 @@ let waveformSupport = null;      // hello.waveform: {capacity}
 let boardWaveform = [0, 0];      // status.waveform: the points loaded, the player's state
 let loadedText = null;           // the points as last loaded, to tell a changed waveform
 let boardOutput = 0;             // status.output[0]: bit3 the last run stopped by the watchdog
+let sourceNames = [];
 
 // the view: the time range shown, ms; null for the whole waveform
 let view = null;
@@ -633,8 +634,13 @@ const LOOP_RESPONSE = [[50, 0.981, 0.3], [150, 1.154, 2.4], [250, 1.171, -8.1],
                        [350, 1.084, -11.4], [450, 1.067, -12.3], [550, 1.065, -9.5],
                        [650, 1.075, -11.5]];
 
+// the table in use: the board's measured one (loop_response.json, from the Bode section's "use
+// for the compensation") when it has one, else the built-in above
+let loopTable = LOOP_RESPONSE;
+let loopTableSource = 'built in';
+
 function loopResponse(hz) {
-  const r = LOOP_RESPONSE;
+  const r = loopTable;
   if (hz <= r[0][0]) return {gain: r[0][1], phase: r[0][2] * Math.PI / 180};
   for (let i = 1; i < r.length; i++) {
     if (hz <= r[i][0]) {
@@ -832,8 +838,8 @@ function analyse() {
     `<tr><td>THD to the ${ANALYSIS_ORDERS}th</td><td>${set ? thdOf(set).toFixed(2) : '—'}</td>` +
     `<td>${thd(a).toFixed(2)}</td><td>${thd(e).toFixed(2)}</td><td>${thd(l).toFixed(2)}</td></tr></tbody></table>` +
     `<p class="note">The last period of ${+frequency.toFixed(3)} Hz; the expected output is the ` +
-    `control's prefilter (${f} Hz) settled; with the loop, also the closed loop's gain as measured ` +
-    `on the board at the default tuning (an estimate: other tunings differ).</p>`;
+    `control's prefilter (${f} Hz) settled; with the loop, also the closed loop's gain from the ` +
+    `loop table in use (${loopTableSource}; an estimate: other tunings differ).</p>`;
 }
 
 function exportCsv() {
@@ -866,6 +872,247 @@ function importCsv(text) {
   changed();
 }
 
+// ------------------------------------------------------------------ the frequency response
+// a tone a frequency through the waveform player, the closed loop on it; the observer's voltage
+// in a scope capture against the points at the same instants
+const BODE_CAPTURE = 32768;           // samples a capture
+const bode = {running: false, stop: false, results: [], waitCapture: null, plots: []};
+
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+// log spaced, three significant digits
+function bodeFrequencies() {
+  const from = Math.max(5, +$('bode_from').value), to = Math.max(from * 1.01, +$('bode_to').value);
+  const count = Math.max(2, Math.min(40, Math.round(+$('bode_count').value)));
+  return Array.from({length: count}, (_, i) => +(from * Math.pow(to / from, i / (count - 1))).toPrecision(3));
+}
+
+// a tone's table: whole cycles in it (20 ms or so, a cycle at least), its points at most 500, each
+// held a whole number of bridge periods; the frequency as the table makes it
+function toneTable(hz, amplitude) {
+  const cycles = Math.max(1, Math.round(hz / 50));
+  const periods = Math.round(cycles / hz * 1000 * PERIODS_A_MS);
+  const hold = Math.max(1, Math.ceil(periods / 500));
+  const count = Math.max(2, Math.round(periods / hold));
+  const length = count * hold;    // the table's bridge periods
+  const actual = cycles * 1000 * PERIODS_A_MS / length;
+  const pts = Array.from({length: count}, (_, k) =>
+    [+(amplitude * Math.sin(2 * Math.PI * cycles * (k + 0.5) / count)).toFixed(4), hold]);
+  return {points: pts, hold, length, hz: actual, seconds: length / (1000 * PERIODS_A_MS)};
+}
+
+function complexDiv(a, b) {
+  const d = b.re * b.re + b.im * b.im;
+  return {re: (a.re * b.re + a.im * b.im) / d, im: (a.im * b.re - a.re * b.im) / d};
+}
+
+function prefilterComplex(hz) {
+  const h = prefilterResponse(hz);
+  return {re: h.gain * Math.cos(h.phase), im: h.gain * Math.sin(h.phase)};
+}
+
+// one tone: loaded, run, captured; its closed loop response (complex)
+async function measureTone(hz, amplitude) {
+  const tone = toneTable(hz, amplitude);
+  // a capture of the first tables' settling, then 4 cycles at least
+  const settle = Math.max(0.02, tone.seconds);
+  const captureSeconds = Math.max(0.13, settle + 4 / tone.hz + 0.01);
+  const divider = Math.max(249, Math.ceil(125e6 * captureSeconds / BODE_CAPTURE) - 1);
+  const runSeconds = captureSeconds + 0.05;
+  const passes = Math.ceil(runSeconds / tone.seconds);
+  send({type: 'waveform_load', points: tone.points, passes});
+  const want = ['observer v', 'sec 2 vfilt_out', 'sdm iac_out mean', 'control i_ref', 'control u_ref',
+                'observer i', 'dhb test', 'output test'];
+  send({type: 'config', config: {divider, length: BODE_CAPTURE, pre_percent: 5, mode: 'normal',
+                                 trigger_channel: 6, trigger_edge: 0, trigger_level: 8,
+                                 sources: want.map(n => sourceNames.indexOf(n))}});
+  await sleep(300);
+  send({type: 'single'});
+  await sleep(300);
+  const captured = new Promise((resolve, reject) => {
+    bode.waitCapture = resolve;
+    setTimeout(() => reject(new Error('no capture')), 15000);
+  });
+  send({type: 'waveform_run', periods: passes * tone.length + 10});
+  send({type: 'dhb_test', periods: 75000, pulse: 40, ramp: 124, run: DHB_RUN_MS * 150, invert: 1});
+  const buffer = await captured;
+  await sleep(runSeconds * 1000 + 400);       // the run over, the output brought down
+  // the capture: a header's length, the header, then 8 channels of 16 bit samples
+  const view = new DataView(buffer);
+  const headerLength = view.getUint32(0, true);
+  const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 4, headerLength)));
+  const samples = new Int16Array(buffer.slice(4 + headerLength));
+  const n = header.length, fs = header.sample_rate;
+  let r0 = -1;
+  for (let i = 0; i < n; i++) if (samples[i * 8 + 7] & 1) { r0 = i; break; }
+  if (r0 < 0) throw new Error('the output did not run');
+  const start = r0 + Math.round(settle * fs);
+  const cycles = Math.floor((n - start) / fs * tone.hz);
+  if (cycles < 2) throw new Error('too short a capture');
+  const span = Math.round(cycles * fs / tone.hz);
+  let o = {re: 0, im: 0}, r = {re: 0, im: 0};
+  for (let i = 0; i < span; i++) {
+    const t = (start - r0 + i) / fs;
+    const v = samples[(start + i) * 8] / 64;    // the observer's voltage, 64 counts a volt
+    const period = Math.floor(t * 1000 * PERIODS_A_MS) % tone.length;
+    const ref = tone.points[Math.floor(period / tone.hold)][0];
+    const w = 2 * Math.PI * tone.hz * t;
+    o.re += v * Math.cos(w); o.im -= v * Math.sin(w);
+    r.re += ref * Math.cos(w); r.im -= ref * Math.sin(w);
+  }
+  return {hz: tone.hz, h: complexDiv(o, r)};
+}
+
+const gainDb = h => 20 * Math.log10(Math.hypot(h.re, h.im));
+const phaseDeg = h => Math.atan2(h.im, h.re) * 180 / Math.PI;
+
+async function measureBode() {
+  const problem = ready();
+  // (the waveform's own points do not matter here)
+  if (problem && !/points/.test(problem)) { $('bode_status').textContent = problem; return; }
+  const amplitude = Math.max(1, Math.min(60, +$('bode_amplitude').value));
+  const freqs = bodeFrequencies();
+  const current = freqs.map(f => (config.observer_c || 18e-6) * 2 * Math.PI * f * amplitude);
+  if (!confirm(`Measure the closed loop's response: ${freqs.length} tones of ${amplitude} V from ` +
+               `${freqs[0]} to ${freqs[freqs.length - 1]} Hz (the capacitor current up to ` +
+               `${Math.max(...current).toFixed(1)} A), each a run of the power stage after the DHB's ` +
+               `precharge, as Run?`)) return;
+  const keep = {};
+  for (const k of ['divider', 'length', 'pre_percent', 'mode', 'trigger_channel', 'trigger_edge',
+                   'trigger_level', 'sources']) keep[k] = config[k];
+  bode.running = true; bode.stop = false; bode.results = [];
+  $('bode_measure').disabled = true;
+  try {
+    for (const [i, f] of freqs.entries()) {
+      if (bode.stop) break;
+      $('bode_status').textContent = `tone ${i + 1} of ${freqs.length}: ${f} Hz…`;
+      const result = await measureTone(f, amplitude);
+      const p = prefilterComplex(result.hz);
+      bode.results.push({hz: result.hz, h: result.h, loop: complexDiv(result.h, p)});
+      showBode();
+    }
+    $('bode_status').textContent = bode.stop ? 'stopped' : `done: ${bode.results.length} tones`;
+  } catch (e) {
+    $('bode_status').textContent = `stopped: ${e.message}`;
+    send({type: 'waveform_stop'});
+  } finally {
+    bode.running = false;
+    bode.waitCapture = null;
+    $('bode_measure').disabled = false;
+    send({type: 'config', config: keep});
+    loadedText = null;       // the player holds the tones now
+  }
+}
+
+function showBode() {
+  const body = $('bode_table').querySelector('tbody');
+  body.textContent = '';
+  for (const r of bode.results) {
+    const row = document.createElement('tr');
+    for (const text of [r.hz.toFixed(1), Math.hypot(r.h.re, r.h.im).toFixed(3), phaseDeg(r.h).toFixed(1),
+                        Math.hypot(r.loop.re, r.loop.im).toFixed(3), phaseDeg(r.loop).toFixed(1)]) {
+      const cell = document.createElement('td'); cell.textContent = text; row.appendChild(cell);
+    }
+    body.appendChild(row);
+  }
+  drawBode();
+}
+
+// the two plots, gain (dB) and phase, over a log frequency axis: the measured closed loop and the
+// loop after the prefilter, the prefilter's model, the compensation table in use
+function drawBode() {
+  const container = $('bode_plots');
+  for (const u of bode.plots) u.destroy();
+  bode.plots = [];
+  container.textContent = '';
+  if (typeof uPlot === 'undefined') return;
+  const measured = bode.results;
+  const lo = Math.min(+$('bode_from').value, ...measured.map(r => r.hz), ...loopTable.map(r => r[0])) / 1.5;
+  const hi = Math.max(+$('bode_to').value, ...measured.map(r => r.hz), ...loopTable.map(r => r[0])) * 1.5;
+  const grid = Array.from({length: 80}, (_, i) => lo * Math.pow(hi / lo, i / 79));
+  const xs = [...new Set(grid.concat(measured.map(r => r.hz), loopTable.map(r => r[0])))].sort((a, b) => a - b);
+  const at = (list, x, get) => { const e = list.find(item => item.x === x); return e ? get(e) : null; };
+  const closed = measured.map(r => ({x: r.hz, h: r.h}));
+  const after = measured.map(r => ({x: r.hz, h: r.loop}));
+  const table = loopTable.map(r => ({x: r[0], gain: r[1], phase: r[2]}));
+  const gridSet = new Set(grid);
+  const model = x => gridSet.has(x) ? prefilterComplex(x) : null;
+  const width = container.clientWidth || 800;
+  const c = colors();
+  const series = [{label: 'Hz', value: (u, v) => v == null ? '--' : v.toPrecision(4)}, {label: 'closed loop, measured', stroke: c.accent, width: 2, spanGaps: true, points: {show: true, size: 6}},
+                  {label: 'loop after the prefilter, measured', stroke: c.selected, width: 2, spanGaps: true, points: {show: true, size: 6}},
+                  {label: 'prefilter, model', stroke: c.preview, width: 1.5, spanGaps: true, points: {show: false}},
+                  {label: `compensation table (${loopTableSource})`, stroke: c.muted, width: 1.5, dash: [6, 4], spanGaps: true, points: {show: true, size: 4}}];
+  for (const [label, get, unit] of [['gain', h => h ? gainDb(h) : null, 'dB'], ['phase', h => h ? phaseDeg(h) : null, '°']]) {
+    const data = [xs,
+      xs.map(x => at(closed, x, e => get(e.h))),
+      xs.map(x => at(after, x, e => get(e.h))),
+      xs.map(x => get(model(x))),
+      xs.map(x => at(table, x, e => label === 'gain' ? 20 * Math.log10(e.gain) : e.phase))];
+    const div = document.createElement('div');
+    container.appendChild(div);
+    bode.plots.push(new uPlot({
+      width, height: 220,
+      scales: {x: {time: false, distr: 3, log: 10}},
+      axes: [{stroke: c.muted, grid: {stroke: c.grid}, label: 'Hz'},
+             {stroke: c.muted, grid: {stroke: c.grid}, label: `${label} (${unit})`, size: 60}],
+      series: series.map(s => Object.assign({}, s)),
+      legend: {show: label === 'gain'},
+    }, data, div));
+  }
+}
+
+async function loadLoopTable() {
+  try {
+    const r = await fetch('loop_response.json', {cache: 'no-store'});
+    if (!r.ok) return;
+    const saved = await r.json();
+    if (Array.isArray(saved.table) && saved.table.length >= 2) {
+      loopTable = saved.table;
+      loopTableSource = `measured ${saved.date}`;
+      analyse();
+      drawBode();
+    }
+  } catch (e) { /* the built-in one */ }
+  $('bode_table_status').textContent = `the compensation's loop table: ${loopTableSource}`;
+}
+
+async function saveLoopTable() {
+  if (!bode.results.length) { $('bode_table_status').textContent = 'measure first'; return; }
+  const table = bode.results.map(r => [+r.hz.toFixed(1), +Math.hypot(r.loop.re, r.loop.im).toFixed(4),
+                                       +phaseDeg(r.loop).toFixed(2)]).sort((a, b) => a[0] - b[0]);
+  const tuning = ['control_voltage_hz', 'control_voltage_zero', 'control_b', 'control_current_hz',
+                  'control_prefilter_hz', 'control_feedforward'].map(k => `${k} ${config[k]}`).join(', ');
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const saved = {date, tuning,
+                 amplitude: +$('bode_amplitude').value, table};
+  const body = new Blob([JSON.stringify(saved)]).stream().pipeThrough(new CompressionStream('gzip'));
+  try {
+    const r = await fetch('/files/loop_response.json.gz', {method: 'POST', body: await new Response(body).arrayBuffer(),
+                                                           headers: {'Content-Type': 'application/octet-stream'}});
+    const result = await r.json();
+    if (!result.ok) throw new Error(result.message || r.status);
+    loopTable = table;
+    loopTableSource = `measured ${saved.date}`;
+    $('bode_table_status').textContent = `the compensation's loop table: ${loopTableSource}, on the board`;
+    analyse();
+    drawBode();
+  } catch (e) {
+    $('bode_table_status').textContent = `not saved: ${e.message}`;
+  }
+}
+
+async function builtinLoopTable() {
+  try { await fetch('/files/loop_response.json.gz', {method: 'DELETE'}); } catch (e) { /* none there */ }
+  loopTable = LOOP_RESPONSE;
+  loopTableSource = 'built in';
+  $('bode_table_status').textContent = `the compensation's loop table: ${loopTableSource}`;
+  analyse();
+  drawBode();
+}
+
 // ------------------------------------------------------------------ the board
 function send(message) {
   if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -875,10 +1122,15 @@ function connect() {
   socket = new WebSocket(`ws://${location.host}/ws`);
   socket.binaryType = 'arraybuffer';
   socket.onmessage = event => {
-    if (event.data instanceof ArrayBuffer) return;   // the scope's last capture
+    if (event.data instanceof ArrayBuffer) {
+      // a capture: the Bode measurement's when it waits for one (else the scope's last)
+      if (bode.waitCapture) { bode.waitCapture(event.data); bode.waitCapture = null; }
+      return;
+    }
     const message = JSON.parse(event.data);
     if (message.type === 'hello') {
       config = message.config;
+      sourceNames = message.source_names || [];
       waveformSupport = message.waveform || null;
       $('status').textContent = 'connected';
       boardOutput = 0;
@@ -915,6 +1167,11 @@ $('show_preview').onchange = draw;
 $('gen_replace').onclick = () => { remember(); points = generate(); selected = -1; view = null; changed(); };
 $('gen_append').onclick = () => { remember(); points = points.concat(generate()); view = null; changed(); };
 $('noise_add').onclick = addNoise;
+$('bode_measure').onclick = measureBode;
+$('bode_stop').onclick = () => { bode.stop = true; send({type: 'waveform_stop'}); };
+$('bode_use').onclick = saveLoopTable;
+$('bode_builtin').onclick = builtinLoopTable;
+$('bode_section').addEventListener('toggle', () => { if ($('bode_section').open) drawBode(); });
 $('gen_shape').onchange = () => {
   const grid = $('gen_shape').value === 'grid';
   $('grid_editor').hidden = !grid;
@@ -990,9 +1247,10 @@ buildHarmonics();
 // the board's watchdog: a run goes on only while a page is there; this one says so every second
 setInterval(() => send({type: 'heartbeat'}), 1000);
 
-window.addEventListener('resize', resize);
+window.addEventListener('resize', () => { resize(); if ($('bode_section').open) drawBode(); });
 computePreview();
 analyse();
+loadLoopTable();
 buildTable();
 showSummary();
 showBoard();

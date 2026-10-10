@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ti60 Waveform</title>
+<link rel="stylesheet" href="uPlot.min.css">
 <link rel="stylesheet" href="scope.css">
 </head>
 <body>
@@ -71,7 +72,7 @@
         <label class="check"><input id="compensate" type="checkbox" checked> compensate the control's
           prefilter (each harmonic's gain and phase)</label>
         <label class="check"><input id="compensate_loop" type="checkbox" checked> and the closed loop's
-          response, as measured on the board (the default tuning)</label>
+          response, as measured (the loop table: Frequency response, under the plot)</label>
         <p class="note">Each harmonic is n times the fundamental, its phase against the fundamental's
           (sin(n ωt + phase)): 0° on the 3rd and 180° on the 5th flatten the top.</p>
       </div>
@@ -118,8 +119,37 @@
       <tbody></tbody>
     </table>
     <div class="row"><button id="add_row" class="small">Add a point</button></div>
+    <details id="bode_section">
+      <summary>Frequency response (Bode)</summary>
+      <p class="note">The closed loop from the points to the output voltage (the observer's), measured
+        with a sine tone at each frequency played through the waveform player, at the board's tuning
+        as it is: each tone's component in the observer's voltage against the points'. The prefilter's
+        part is known (its model, at the board's prefilter setting); the loop after it is what the grid
+        generator compensates. This runs the power stage, a tone at a time, as Run does.</p>
+      <div class="row">
+        <label class="inline">Tone (V) <input id="bode_amplitude" type="number" min="1" max="60" step="1" value="10"></label>
+        <label class="inline">From (Hz) <input id="bode_from" type="number" min="5" step="1" value="20"></label>
+        <label class="inline">To (Hz) <input id="bode_to" type="number" min="10" step="10" value="2000"></label>
+        <label class="inline">Tones <input id="bode_count" type="number" min="2" max="40" step="1" value="12"></label>
+        <button id="bode_measure" class="primary">Measure</button>
+        <button id="bode_stop">Stop</button>
+        <span id="bode_status" class="status"></span>
+      </div>
+      <div id="bode_plots"></div>
+      <table id="bode_table" class="compact">
+        <thead><tr><th>Hz</th><th>Closed loop gain</th><th>phase (°)</th><th>Loop after the prefilter</th>
+          <th>phase (°)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="row">
+        <button id="bode_use" class="small" title="the measured loop after the prefilter, on the board for every browser">Use for the compensation</button>
+        <button id="bode_builtin" class="small" title="the table built into the page">Built-in compensation</button>
+        <span id="bode_table_status" class="status"></span>
+      </div>
+    </details>
   </div>
 </main>
+<script src="uPlot.iife.min.js"></script>
 <script src="waveform.js"></script>
 </body>
 </html>

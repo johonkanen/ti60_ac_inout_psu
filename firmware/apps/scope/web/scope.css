@@ -134,3 +134,8 @@ label.check.inline { display: inline-flex; margin: 0 0 0 8px; }
 #harmonics input { width: 5em; }
 #spectrum table { margin-top: 8px; }
 #spectrum .note { margin-top: 8px; }
+#bode_section { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 8px; }
+#bode_section summary { cursor: pointer; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+label.inline { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
+label.inline input { display: inline-block; width: 5.5em; margin: 0; }
+#bode_plots > div { margin-top: 8px; }
