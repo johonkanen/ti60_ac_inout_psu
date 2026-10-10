@@ -535,9 +535,11 @@ static void broadcast_status(void)
 	last_status = now;
 	uint32_t input_state[4];
 	uint32_t boost_state[2];
+	uint32_t touch_state[4];
 
 	capture_input_state(input_state);
 	capture_boost_state(boost_state);
+	capture_touch_state(touch_state);
 
 	k_mutex_lock(&scope_lock, K_FOREVER);
 	if (now - adc.at >= 500) {
@@ -565,7 +567,8 @@ static void broadcast_status(void)
 		 "\"output\":[%u,%u],\"observer\":[%.3f,%.2f,%.2f,%.3f,%u],"
 		 "\"control\":[%.3f,%.2f,%.2f,%.2f,%u,%u],\"waveform\":[%u,%u],"
 		 "\"input\":[%u,%u,%.3f,%.3f],"
-		 "\"boost\":[%u,%.3f,%.4f,%.3f,%.3f,%.3f,%.3f,%.2f,%u]}",
+		 "\"boost\":[%u,%.3f,%.4f,%.3f,%.3f,%.3f,%.3f,%.2f,%u],"
+		 "\"touch\":[%u,%u,%u,%u]}",
 		 status.state, status.captures, status.forced ? "true" : "false",
 		 status.running ? "true" : "false", stream_lost(), adc.rates[0], adc.rates[1],
 		 adc.sdm_rate, capture_gate_power_on(), copy_us, send_us, capture_dhb_status(),
@@ -581,7 +584,8 @@ static void broadcast_status(void)
 		 (int32_t)input_state[2] / 1048576.0, (int32_t)input_state[3] / 1048576.0,
 		 boost_state[0], capture_boost_value(0), capture_boost_value(1), capture_boost_value(2),
 		 capture_boost_value(3), capture_boost_value(4), capture_boost_value(5),
-		 capture_boost_value(6), boost_state[1]);
+		 capture_boost_value(6), boost_state[1], touch_state[0], touch_state[1],
+		 touch_state[2], touch_state[3]);
 	k_mutex_unlock(&scope_lock);
 
 	for (int i = 0; i < MAX_CLIENTS; i++) {

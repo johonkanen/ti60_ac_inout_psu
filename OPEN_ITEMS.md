@@ -62,10 +62,11 @@ item when it is done; the commit that does it says so.
 
 ## Face panel LCD
 
-- `lcd_display.vhd` (registers 1300) shows a screen of text; the firmware writes the IP
-  address. Not used yet: the touch controller (T_CK GPIOR_P_18, T_CS GPIOR_N_18, T_DIN
-  GPIOR_N_19; the header's T_DO pin carries the output leg 2 high side flywire, the touch's TDO
-  is moved to T_IRQ), and anything beyond text (status, measurements).
+- `lcd_display.vhd` (registers 1300) shows a screen of text: the IP address, the last touch,
+  and the firmware's and the FPGA image's commits ("+": built from a changed tree).
+  `touch_reader.vhd` (registers 1320) polls the touch controller (no pen interrupt connected;
+  its data out on GPIOR_22). To decide: what a touch does (on-screen buttons, pages of status);
+  the touch's raw 0..4095 readings are not yet calibrated to screen pixels.
 - Efinity numbers the bits of an unconstrained record field (the memory library's RAM output)
   the other way from the simulator: indexing a bit of it directly mirrored each character on
   the board while the testbench passed. Copy such a vector whole into a constrained one before

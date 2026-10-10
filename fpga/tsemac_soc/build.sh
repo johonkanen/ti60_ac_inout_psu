@@ -34,10 +34,18 @@ need_ips() {
 make_project() {
     local role=$1 number=$2
     sed -e "s/name=\"tsemac_soc\"/name=\"tsemac_soc_$role\"/" tsemac_soc.peri.xml > "tsemac_soc_$role.peri.xml"
+    # the commit built: 7 hex digits of its hash, bit 31 set when the tree had changes
+    local hash dirty=0
+    hash=$(git rev-parse HEAD 2>/dev/null | cut -c1-7)
+    [ -n "$hash" ] || hash=0000000
+    git diff --quiet HEAD -- 2>/dev/null || dirty=1
     printf '%s\n' \
-        "-- written by build.sh: which image this build is, see remote_update/remote_update.vhd" \
+        "-- written by build.sh: which image this build is, see remote_update/remote_update.vhd," \
+        "-- and the commit it was built from" \
         "package image_role_pkg is" \
         "    constant image_role : natural := $number;  -- $role" \
+        "    constant image_git_hash  : natural := 16#$hash#;" \
+        "    constant image_git_dirty : natural := $dirty;" \
         "end package image_role_pkg;" > "image_role_pkg_$role.vhd"
     sed -e "s/name=\"tsemac_soc\"/name=\"tsemac_soc_$role\"/" \
         -e "s/\"image_role_pkg.vhd\"/\"image_role_pkg_$role.vhd\"/" \

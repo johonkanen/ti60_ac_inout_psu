@@ -116,6 +116,9 @@ entity tsemac_soc_top is
         ;grid_inu_sdm_data, output_inu_sdm_data, dab_sdm_data : in std_logic
         -- the face panel's LCD (ILI9488 over SPI, written only)
         ;lcd_cs, lcd_reset, lcd_dc, lcd_sck, lcd_mosi, lcd_led : out std_logic
+        -- its touch controller (XPT2046 over SPI, polled)
+        ;touch_cs, touch_clk, touch_din : out std_logic
+        ;touch_dout : in std_logic
 
         ;system_uart_0_io_txd : out std_logic
         ;system_uart_0_io_rxd : in std_logic
@@ -203,6 +206,8 @@ architecture rtl of tsemac_soc_top is
     signal boost_probe, boost_i_ref_probe, boost_duty_probe : scope_sample;
     signal boost_running, test_running : boolean;
     signal bus_from_lcd         : fpga_interconnect_record := init_fpga_interconnect;
+    signal bus_from_touch       : fpga_interconnect_record := init_fpga_interconnect;
+    signal bus_from_version     : fpga_interconnect_record := init_fpga_interconnect;
     signal primary_dc_voltage   : fixed_number := fixed_zero;
     signal waveform_ref         : fixed_number;
     signal waveform_finished, waveform_start, waveform_step : boolean;
@@ -336,7 +341,7 @@ begin
                        and bus_from_dhb and bus_from_scaler and bus_from_dhb_control
                        and bus_from_protection and bus_from_output and bus_from_output_control
                        and bus_from_waveform and bus_from_input and bus_from_boost
-                       and bus_from_lcd;
+                       and bus_from_lcd and bus_from_touch and bus_from_version;
 ------------------------------------------------------------------------
     -- the golden or application image (image_role_pkg, written by build.sh), and switching
     -- between them, registers at 800..
@@ -597,6 +602,30 @@ begin
         ,lcd_sck   => lcd_sck
         ,lcd_mosi  => lcd_mosi
         ,lcd_led   => lcd_led
+    );
+
+    -- the commit this image was built from (image_role_pkg, written by build.sh), register 1330:
+    -- bits 27..0 its hash's first 7 hex digits, bit 31 the tree had changes
+    process(io_tseClk)
+    begin
+        if rising_edge(io_tseClk) then
+            init_bus(bus_from_version);
+            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1330,
+                std_logic_vector(to_unsigned(image_git_dirty * 8, 4)) & std_logic_vector(to_unsigned(image_git_hash, 28)));
+        end if;
+    end process;
+
+    -- the touch screen (touch_reader.vhd, registers at 1320..): polled every 5 ms
+    u_touch : entity work.touch_reader
+    generic map(g_base_address => 1320)
+    port map(
+        clock    => io_tseClk
+        ,bus_in  => bus_to_slaves
+        ,bus_out => bus_from_touch
+        ,t_cs    => touch_cs
+        ,t_clk   => touch_clk
+        ,t_din   => touch_din
+        ,t_dout  => touch_dout
     );
     input_leg1  <= (high => test_leg1.high or boost_leg1.high, low => test_leg1.low or boost_leg1.low);
     input_leg2  <= (high => test_leg2.high or boost_leg2.high, low => test_leg2.low or boost_leg2.low);

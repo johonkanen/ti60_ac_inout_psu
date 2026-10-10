@@ -246,6 +246,12 @@ void capture_boost_state(uint32_t state[2]);
 void capture_lcd_text(uint32_t place, const char *text);
 void capture_lcd_draw(void);
 uint32_t capture_lcd_cols(void);
+/* the touch screen (touch_reader.vhd, registers at 1320): [0] touched, [1] X and [2] Y of the
+ * last touch (0..4095), [3] the pressure's Z1 */
+void capture_touch_state(uint32_t state[4]);
+/* the commit the FPGA image was built from: bits 27..0 its hash's first 7 hex digits, bit 31 the
+ * tree had changes */
+uint32_t capture_fpga_version(void);
 /* 0 the current reference, 1 the duty, 2 the input current, 3 the link, 4 the bridge's output
  * current, 5 the input's voltage, 6 v_ref */
 double capture_boost_value(int which);

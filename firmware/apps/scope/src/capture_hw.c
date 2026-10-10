@@ -709,6 +709,21 @@ uint32_t capture_lcd_cols(void)
 	return sys_read32(LCD_REGISTER(7)) & 0xff;
 }
 
+uint32_t capture_fpga_version(void)
+{
+	return sys_read32(REGISTERS + 4 * 1330);
+}
+
+#define TOUCH_REGISTER(r) (REGISTERS + 4 * 1320 + 4 * (r))
+
+void capture_touch_state(uint32_t state[4])
+{
+	state[0] = sys_read32(TOUCH_REGISTER(0)) & 1;
+	state[1] = sys_read32(TOUCH_REGISTER(1));
+	state[2] = sys_read32(TOUCH_REGISTER(2));
+	state[3] = sys_read32(TOUCH_REGISTER(3));
+}
+
 /* register 12: the output's watchdog kicked (13 its time, 1 s after a reset) */
 void capture_output_kick(void)
 {

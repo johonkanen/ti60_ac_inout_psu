@@ -13,6 +13,7 @@
 #include <fw_update.h>
 #include <http_files.h>
 #include "scope.h"
+#include "git_version.h"
 
 /*
  * The web client: files of the littlefs on flash, uploaded gzipped by upload_web.sh.
@@ -57,34 +58,69 @@ HTTP_RESOURCE_DEFINE(update_resource, scope_service, "/update", &fw_update_resou
 HTTP_RESOURCE_DEFINE(files_resource, scope_service, "/files/*", &http_files_resource);
 
 /*
- * The face panel's LCD shows the board's address: checked every 2 s, its line (the text's
- * third row) rewritten and the screen redrawn when it changes (a DHCP lease, or none yet).
+ * The face panel's LCD: the board's address, the touch screen's last touch, and the commits the
+ * firmware and the FPGA image were built from, each on a line of its own. Looked at every
+ * 200 ms; a line that changed is rewritten and the screen redrawn (a DHCP lease, a touch).
  */
-#define LCD_ADDRESS_ROW 2
+#define LCD_ADDRESS_ROW  2
+#define LCD_TOUCH_ROW    4
+#define LCD_FIRMWARE_ROW 6
+#define LCD_FPGA_ROW     7
+#define LCD_LINES        4
+#define LCD_LINE_MAX     24
 
-static void lcd_address_update(struct k_work *work);
-static K_WORK_DELAYABLE_DEFINE(lcd_address_work, lcd_address_update);
+static void lcd_update(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(lcd_work, lcd_update);
 
-static void lcd_address_update(struct k_work *work)
+/* a line padded with spaces to the row's width, written when it is not what is shown */
+static bool lcd_line(int which, uint32_t row, uint32_t cols, const char *text)
 {
-	static char shown[25] = "";
+	static char shown[LCD_LINES][LCD_LINE_MAX + 1];
+	char line[LCD_LINE_MAX + 1];
+
+	snprintf(line, sizeof(line), "%-*s", (int)cols, text);
+	line[cols] = '\0';
+	if (strcmp(line, shown[which]) == 0) {
+		return false;
+	}
+	capture_lcd_text(row * cols, line);
+	memcpy(shown[which], line, sizeof(line));
+	return true;
+}
+
+static void lcd_update(struct k_work *work)
+{
 	char address[NET_IPV4_ADDR_LEN] = "...";
-	char line[25];
+	char text[LCD_LINE_MAX + 1];
 	struct net_in_addr *ip = net_if_ipv4_get_global_addr(net_if_get_default(), NET_ADDR_PREFERRED);
-	uint32_t cols = MIN(capture_lcd_cols(), sizeof(line) - 1);
+	uint32_t cols = MIN(capture_lcd_cols(), LCD_LINE_MAX);
+	uint32_t touch[4];
+	uint32_t fpga = capture_fpga_version();
+	bool changed = false;
 
 	if (ip != NULL) {
 		net_addr_ntop(NET_AF_INET, ip, address, sizeof(address));
 	}
-	/* the whole row, padded with spaces over what was there */
-	snprintf(line, sizeof(line), "IP %-*s", (int)cols, address);
-	line[cols] = '\0';
-	if (strcmp(line, shown) != 0) {
-		capture_lcd_text(LCD_ADDRESS_ROW * cols, line);
-		capture_lcd_draw();
-		memcpy(shown, line, sizeof(shown));
+	snprintf(text, sizeof(text), "IP %s", address);
+	changed |= lcd_line(0, LCD_ADDRESS_ROW, cols, text);
+
+	capture_touch_state(touch);
+	if (touch[0]) {
+		snprintf(text, sizeof(text), "touch %4u %4u", touch[1], touch[2]);
+	} else {
+		snprintf(text, sizeof(text), "touch -");
 	}
-	k_work_reschedule(k_work_delayable_from_work(work), K_SECONDS(2));
+	changed |= lcd_line(1, LCD_TOUCH_ROW, cols, text);
+
+	snprintf(text, sizeof(text), "fw   %s%s", GIT_HASH, GIT_DIRTY ? "+" : "");
+	changed |= lcd_line(2, LCD_FIRMWARE_ROW, cols, text);
+	snprintf(text, sizeof(text), "fpga %07x%s", fpga & 0x0fffffff, fpga & BIT(31) ? "+" : "");
+	changed |= lcd_line(3, LCD_FPGA_ROW, cols, text);
+
+	if (changed) {
+		capture_lcd_draw();
+	}
+	k_work_reschedule(k_work_delayable_from_work(work), K_MSEC(200));
 }
 
 int main(void)
@@ -111,7 +147,7 @@ int main(void)
 		printk("no web client in flash yet: apps/scope/upload_web.sh <address>\n");
 	}
 	http_server_start();
-	k_work_reschedule(&lcd_address_work, K_NO_WAIT);
+	k_work_reschedule(&lcd_work, K_NO_WAIT);
 #ifdef CONFIG_SCOPE_STREAM
 	/* the stream answers on the board's address, which a DHCP lease may bring late */
 	for (int s = 0; s < 30; s++) {

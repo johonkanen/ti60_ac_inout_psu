@@ -218,8 +218,10 @@ for name, pin in [
     design.set_property(name, "IO_STANDARD", "1.8_V_LVCMOS")
     design.assign_resource(name, pin)
 
-# the face panel's LCD (MSP3520, ILI9488 over SPI; lcd_display.vhd), through a 1.8 V to 3.3 V
-# buffer; its touch controller's pins (T_CK GPIOR_P_18, T_CS GPIOR_N_18, T_DIN GPIOR_N_19) unused
+# the face panel's LCD (MSP3520, ILI9488 over SPI; lcd_display.vhd) and its touch controller
+# (XPT2046, touch_reader.vhd), through a 1.8 V to 3.3 V buffer; the touch's data out comes back
+# on GPIOR_22 (3.3 V: the header's T_IRQ pin, its T_DO pin carrying the output leg 2 flywire),
+# its pen interrupt not connected
 for name, pin in [
         ("lcd_cs", "GPIOR_N_06"),
         ("lcd_reset", "GPIOR_P_11"),
@@ -227,10 +229,16 @@ for name, pin in [
         ("lcd_sck", "GPIOR_N_13"),
         ("lcd_mosi", "GPIOR_N_16"),
         ("lcd_led", "GPIOR_P_16"),
+        ("touch_clk", "GPIOR_P_18"),
+        ("touch_cs", "GPIOR_N_18"),
+        ("touch_din", "GPIOR_N_19"),
 ]:
     design.create_output_gpio(name)
     design.set_property(name, "IO_STANDARD", "1.8_V_LVCMOS")
     design.assign_resource(name, pin)
+design.create_input_gpio("touch_dout")
+design.set_property("touch_dout", "IO_STANDARD", "3.3_V_LVCMOS")
+design.assign_resource("touch_dout", "GPIOR_22")
 
 # a board fix: output_inu leg 2's high side is on a flywire to GPIOR_21 (a 3.3 V bank) instead of
 # the schematic's GPIOL_P_09, which is left unassigned (only its weak pull-up, never driven: its

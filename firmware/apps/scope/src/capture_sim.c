@@ -357,6 +357,16 @@ uint32_t capture_lcd_cols(void)
 	return 24;
 }
 
+uint32_t capture_fpga_version(void)
+{
+	return 0;
+}
+
+void capture_touch_state(uint32_t state[4])
+{
+	state[0] = state[1] = state[2] = state[3] = 0;
+}
+
 void capture_boost_set(int reg, double value)
 {
 	ARG_UNUSED(reg);
