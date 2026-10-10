@@ -1,0 +1,2 @@
+zephyr_library()
+zephyr_library_sources_ifdef(CONFIG_SPI_EFINIX_SAPPHIRE spi_efinix_sapphire.c)

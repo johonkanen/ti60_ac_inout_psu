@@ -1,0 +1,45 @@
+config TCP_STREAM
+	bool "A fast TCP stream beside the network stack"
+	depends on ETH_EFINIX_TSEMAC && NET_IPV4
+	help
+	  One connection at a time on one port, sending segments built from
+	  where the data is (tcp_stream.h): the TSEMAC driver's receive hook
+	  and transmit batches, checksums from the design.
+
+if TCP_STREAM
+
+config TCP_STREAM_BATCH
+	int "Segments per transmit batch"
+	default 32
+	help
+	  At most ETH_EFINIX_TSEMAC_TX_BATCH. A full batch of full segments
+	  is about 380 us at 1000 Mb/s.
+
+config TCP_STREAM_RX_SLOTS
+	int "Received frames waiting for the stream's thread"
+	default 16
+
+config TCP_STREAM_REPLY_SIZE
+	int "Bytes the source may send before its segments"
+	default 512
+
+config TCP_STREAM_POLL
+	bool "Poll the transmit DMA instead of sleeping a tick"
+	help
+	  For measuring: the thread spins while a batch is sent.
+
+config TCP_STREAM_THREAD_PRIORITY
+	int "Priority of the stream's thread"
+	default 8
+
+config TCP_STREAM_STACK_SIZE
+	int "Stack of the stream's thread"
+	default 2048
+
+config TCP_STREAM_WEBSOCKET
+	bool "WebSocket server over the stream (ws_stream.h)"
+	select BASE64
+	select PSA_CRYPTO
+	select PSA_WANT_ALG_SHA_1
+
+endif

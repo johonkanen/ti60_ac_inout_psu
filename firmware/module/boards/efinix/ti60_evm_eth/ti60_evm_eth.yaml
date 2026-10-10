@@ -1,0 +1,12 @@
+identifier: ti60_evm_eth
+name: Ti60F225 development kit with Efinix TSEMAC design
+type: mcu
+arch: riscv
+toolchain:
+  - zephyr
+ram: 16384
+supported:
+  - gpio
+  - uart
+  - netif:eth
+vendor: efinix

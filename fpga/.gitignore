@@ -1,0 +1,15 @@
+*.zip
+
+
+# Efinity build outputs
+outflow*/
+work_syn*/
+work_pnr*/
+work_dbg*/
+*.peri.xml
+*.peri.db
+*.lock
+.lock
+__pycache__/
+work/
+vunit_out/

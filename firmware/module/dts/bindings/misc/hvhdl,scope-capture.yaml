@@ -1,0 +1,21 @@
+description: |
+  ti60_ac_psu's oscilloscope capture (source/scope/scope_capture.vhd) in the tsemac_soc
+  design. "registers" is the APB window of its register bus: register r at byte offset
+  4*r, the scope's from base-address on. "dma" is the DMA channel that writes its deep
+  capture stream into memory.
+
+compatible: "hvhdl,scope-capture"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true
+
+  reg-names:
+    required: true
+
+  base-address:
+    type: int
+    required: true
+    description: Register bus address of the scope's register 0.

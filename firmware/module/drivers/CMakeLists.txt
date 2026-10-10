@@ -1,0 +1,2 @@
+add_subdirectory_ifdef(CONFIG_NETWORKING ethernet)
+add_subdirectory_ifdef(CONFIG_SPI spi)

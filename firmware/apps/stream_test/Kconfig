@@ -1,0 +1,6 @@
+config STREAM_TEST_WEBSOCKET
+	bool "Serve the stream as a WebSocket (ws_stream) instead of raw TCP"
+	default y
+	select TCP_STREAM_WEBSOCKET
+
+source "Kconfig.zephyr"

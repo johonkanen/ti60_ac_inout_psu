@@ -1,0 +1,2 @@
+# vendor prefixes of the bindings in this module, as zephyr/dts/bindings/vendor-prefixes.txt
+hvhdl	hVHDL, VHDL libraries of the ti60_ac_psu project (fpga_interconnect, scope)

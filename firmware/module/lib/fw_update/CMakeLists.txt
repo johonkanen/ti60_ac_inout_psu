@@ -1,0 +1,3 @@
+zephyr_library()
+zephyr_library_sources(fw_update.c)
+zephyr_library_sources_ifdef(CONFIG_FW_UPDATE_FPGA fpga_update.c)

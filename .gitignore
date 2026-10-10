@@ -1,0 +1,7 @@
+# VUnit's output (vunit_run.py)
+vunit_out/
+# output_filter_fit_tb's results (regenerated on each run)
+fpga/source/inverter/sim/data/output_filter_fit.csv
+fpga/source/inverter/sim/data/output_filter_fit.png
+fpga/source/inverter/sim/data/output_observer_replay.csv
+fpga/source/inverter/sim/data/output_voltage_control.csv

@@ -1,0 +1,12 @@
+[submodule "fpga/source/fpga_communication"]
+	path = fpga/source/fpga_communication
+	url = https://github.com/johonkanen/fpga_communication.git
+[submodule "fpga/source/hVHDL_fixed_point"]
+	path = fpga/source/hVHDL_fixed_point
+	url = https://github.com/hVHDL/hVHDL_fixed_point.git
+[submodule "fpga/source/hVHDL_ode"]
+	path = fpga/source/hVHDL_ode
+	url = https://github.com/hVHDL/hVHDL_ode.git
+[submodule "fpga/source/hVHDL_microprogram_processor"]
+	path = fpga/source/hVHDL_microprogram_processor
+	url = https://github.com/hVHDL/hVHDL_microprogram_processor.git

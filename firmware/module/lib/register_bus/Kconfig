@@ -1,0 +1,17 @@
+config REGISTER_BUS
+	bool "FPGA register bus over an internal UART"
+	default y
+	depends on DT_HAS_HVHDL_REGISTER_BUS_UART_ENABLED
+
+if REGISTER_BUS
+
+config REGISTER_BUS_TIMEOUT_US
+	int "Time the FPGA has to start answering a read"
+	default 10000
+
+config REGISTER_BUS_SHELL
+	bool "Shell commands: bus read, write, stream"
+	default y
+	depends on SHELL
+
+endif

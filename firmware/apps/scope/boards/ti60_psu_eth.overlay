@@ -1,0 +1,18 @@
+/* the web client lives in a littlefs filesystem on the flash's storage partition */
+/ {
+	fstab {
+		compatible = "zephyr,fstab";
+
+		web_fs: web {
+			compatible = "zephyr,fstab,littlefs";
+			mount-point = "/web";
+			partition = <&storage_partition>;
+			automount;
+			read-size = <16>;
+			prog-size = <256>;
+			cache-size = <256>;
+			lookahead-size = <64>;
+			block-cycles = <512>;
+		};
+	};
+};

@@ -1,0 +1,2 @@
+config BOARD_TI60_PSU
+	select SOC_EFINIX_SAPPHIRE

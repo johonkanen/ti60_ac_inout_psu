@@ -1,0 +1,8 @@
+config WORD_MEMCPY
+	bool "memcpy and memmove that store whole words at any alignment"
+	help
+	  Replaces the C library's memcpy and memmove with ones that copy words
+	  also when source and destination are aligned differently within a
+	  word, where picolibc copies bytes. For a CPU whose every store goes to
+	  slow memory, a Sapphire SoC with a write-through data cache running
+	  from HyperRAM.

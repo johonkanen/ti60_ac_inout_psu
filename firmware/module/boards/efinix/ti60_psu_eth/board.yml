@@ -1,0 +1,6 @@
+board:
+  name: ti60_psu_eth
+  full_name: ti60_ac_psu board, tsemac_soc design
+  vendor: efinix
+  socs:
+  - name: efinix_sapphire

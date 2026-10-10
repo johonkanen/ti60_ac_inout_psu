@@ -1,0 +1,175 @@
+/*
+ * Ti60F225 development kit running Efinix's TSEMAC Linux example design
+ * (~/dev/ti60f225_evmlinux/fpga/ti60-tsemac-linux): two rv32imac harts at 200 MHz,
+ * peripherals and machine timer at 100 MHz, 32 MB HyperRAM, TSEMAC behind a
+ * scatter-gather DMA that only reaches HyperRAM.
+ *
+ * Zephyr runs from HyperRAM at 0x01000000. The design's flash bootloader copies the
+ * second-stage loader (loader/) from flash 0x600000 there, which loads the image from
+ * one of two flash slots to the same address and starts both harts in it. Hart 1 is
+ * parked by the Zephyr reset code.
+ *
+ * The 2 MB image region is Zephyr's "flash": code, read-only data and the initial
+ * values of data, packed with nothing in between. RAM for data, bss and noinit follows
+ * it. A layout of RAM only would put any section linked after bss into the image too,
+ * padded with all of bss and noinit.
+ */
+
+/dts-v1/;
+
+#include <efinix/sapphire_soc.dtsi>
+
+/delete-node/ &ram0;
+
+/ {
+	model = "Efinix Ti60F225 development kit, TSEMAC design";
+	compatible = "efinix,ti60-evm-eth";
+
+	chosen {
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+		zephyr,sram = &ram0;
+		zephyr,flash = &image0;
+	};
+
+	aliases {
+		led0 = &led1;
+	};
+
+	/* loaded from a slot by the second-stage loader, which allows up to 2 MB - 4 KB */
+	image0: memory@1000000 {
+		reg = <0x01000000 DT_SIZE_M(2)>;
+	};
+
+	ram0: memory@1200000 {
+		device_type = "memory";
+		reg = <0x01200000 DT_SIZE_M(14)>;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led1: led_1 {
+			gpios = <&gpio0 1 GPIO_ACTIVE_LOW>;
+			label = "LED1";
+		};
+
+		led2: led_2 {
+			gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
+			label = "LED2";
+		};
+
+		led3: led_3 {
+			gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
+			label = "LED3";
+		};
+	};
+};
+
+&{/cpus/cpu@0} {
+	clock-frequency = <200000000>;
+	riscv,isa-extensions = "i", "m", "a", "c", "zicsr", "zifencei";
+};
+
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;
+};
+
+&gpio0 {
+	reg = <0xf8016000 0x100>;
+	status = "okay";
+};
+
+&{/soc} {
+	mdio: mdio@f8100100 {
+		compatible = "efinix,tsemac-mdio";
+		reg = <0xf8100100 0x20>, <0xf8100200 0x20>;
+		reg-names = "mdio", "ctrl";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		phy0: ethernet-phy@0 {
+			compatible = "realtek,rtl8211f";
+			reg = <0>;
+			status = "okay";
+		};
+	};
+
+	spi0: spi@f8014000 {
+		compatible = "efinix,sapphire-spi";
+		reg = <0xf8014000 0x1000>;
+		clock-frequency = <100000000>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		/* the FPGA configuration flash, W25Q64JW */
+		flash0: flash@0 {
+			compatible = "jedec,spi-nor";
+			reg = <0>;
+			spi-max-frequency = <25000000>;
+			size = <DT_SIZE_M(64)>; /* bits */
+			jedec-id = [ef 60 17];
+			status = "okay";
+
+			partitions {
+				compatible = "fixed-partitions";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				/* compressed bitstream, about 850 KB */
+				fpga_partition: partition@0 {
+					label = "fpga";
+					reg = <0x000000 0x200000>;
+					read-only;
+				};
+
+				/*
+				 * Zephyr images, booted by the second-stage loader (loader/): the
+				 * newest valid slot. Updates write the other one.
+				 */
+				slot0_partition: partition@200000 {
+					label = "slot-0";
+					reg = <0x200000 0x200000>;
+				};
+
+				slot1_partition: partition@400000 {
+					label = "slot-1";
+					reg = <0x400000 0x200000>;
+				};
+
+				/* copied to 0x01000000 and started by the design's bootloader */
+				loader_partition: partition@600000 {
+					label = "loader";
+					reg = <0x600000 0x10000>;
+				};
+
+				storage_partition: partition@610000 {
+					label = "storage";
+					reg = <0x610000 0x1f0000>;
+				};
+			};
+		};
+	};
+
+	eth0: ethernet@f8100000 {
+		compatible = "efinix,tsemac";
+		reg = <0xf8100000 0x10000>, <0xf8110000 0x10000>;
+		reg-names = "mac", "dma";
+		interrupt-parent = <&plic0>;
+		interrupts = <16 1>, <17 1>;
+		local-mac-address = [00 11 22 33 44 55];
+		phy-handle = <&phy0>;
+		phy-connection-type = "rgmii";
+		/*
+		 * RTL8211F as Efinix's Linux sets it up: no RGMII delays in the PHY (page
+		 * 0xd08 registers 0x11 and 0x15), the FPGA design delays the clocks; forced
+		 * gigabit master, which Efinix uses for an RTL8211F issue as slave
+		 */
+		phy-register-updates = <0x1f 0xffff 0x0d08>, <0x11 0x0100 0>, <0x15 0x0008 0>,
+				       <0x1f 0xffff 0>, <0x09 0x1800 0x1800>;
+		status = "okay";
+	};
+};

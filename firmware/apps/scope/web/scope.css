@@ -1,0 +1,125 @@
+:root {
+  --background: #111418;
+  --panel: #1a1f26;
+  --border: #2c333d;
+  --text: #d7dde5;
+  --muted: #8a94a3;
+  --accent: #4aa3ff;
+  --grid: #2a313b;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+h1 { font-size: 18px; margin: 0; font-weight: 600; }
+h2 { font-size: 12px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+button {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.active { outline: 2px solid var(--accent); }
+.status { color: var(--muted); font-variant-numeric: tabular-nums; }
+nav a { color: var(--accent); text-decoration: none; }
+nav a:hover { text-decoration: underline; }
+.note { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
+main.page { display: block; max-width: 900px; padding: 12px 16px; }
+main.page section { margin-bottom: 28px; }
+.row { display: flex; gap: 8px; align-items: center; margin: 12px 0 6px; flex-wrap: wrap; }
+tr.current td { color: var(--accent); }
+button.small { padding: 1px 8px; font-size: 12px; }
+progress { width: 100%; max-width: 500px; }
+table.compact { margin-top: 4px; font-size: 12px; }
+table.compact th, table.compact td { padding: 2px 4px; text-align: left; }
+table.compact input { width: 5.5em; margin: 0; padding: 1px 3px; font-size: 12px; display: inline-block; }
+table.compact input.unit { width: 3.5em; }
+.toolbar { margin: 0 0 8px; }
+.toolbar .status { margin-left: 8px; }
+#plots > div { margin-bottom: 4px; }
+.plot_row { display: flex; gap: 8px; align-items: flex-start; }
+.values { flex: none; overflow: hidden; white-space: nowrap; font-size: 12px; font-variant-numeric: tabular-nums;
+  padding: 4px 6px; border-left: 1px solid var(--border); }
+.values .when { color: var(--muted); margin-bottom: 4px; }
+.values .channel_value { margin-bottom: 6px; }
+.values .channel_value .name { overflow: hidden; text-overflow: ellipsis; }
+.values .channel_value .v { font-size: 15px; color: var(--text); }
+.values .channel_value .range { color: var(--muted); }
+.values .channel_value.off { opacity: 0.4; }
+#plots > .resize { height: 8px; margin: 0 0 6px; cursor: ns-resize; border-radius: 3px;
+  background: linear-gradient(var(--border), var(--border)) center / 40px 2px no-repeat; touch-action: none; }
+#plots > .resize:hover { background-color: var(--panel); }
+#record_seconds { display: inline-block; width: 4.5em; margin: 0; }
+button:disabled { opacity: 0.4; cursor: default; }
+.status.error { color: #ff6b6b; }
+main { display: flex; min-height: calc(100vh - 50px); }
+aside {
+  width: 280px;
+  flex: none;
+  padding: 12px 16px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+section { margin-bottom: 18px; }
+label { display: block; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
+select, input[type=number], input[type=text], input:not([type]) {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font: inherit;
+}
+input[type=range] { width: 100%; }
+.channel { display: grid; grid-template-columns: 18px 14px 1fr; gap: 6px; align-items: center; margin-bottom: 6px; }
+.channel.with_plot { grid-template-columns: 18px 14px 1fr 52px; }
+.channel select.plot_of { padding: 2px; }
+.plot_title { font-size: 12px; color: var(--muted); margin: 6px 0 0 4px; }
+.plot_title span { margin-right: 12px; cursor: pointer; user-select: none; }
+.plot_title span.off { opacity: 0.4; text-decoration: line-through; }
+.plot_title .range { display: inline-flex; gap: 4px; align-items: center; margin: 0 0 0 12px; font-size: 12px; }
+.plot_title .range select, .plot_title .range input { display: inline-block; width: auto; margin: 0; padding: 1px 3px; font-size: 12px; }
+.plot_title .range input { width: 6em; }
+.channel select { margin: 0; padding: 2px 4px; font-size: 12px; }
+.swatch { width: 12px; height: 12px; border-radius: 2px; }
+.display { flex: 1; min-width: 0; padding: 12px 16px; }
+#plot { width: 100%; }
+table { border-collapse: collapse; margin-top: 12px; font-variant-numeric: tabular-nums; }
+th, td { padding: 3px 12px; text-align: right; border-bottom: 1px solid var(--border); }
+th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+th { color: var(--muted); font-weight: 500; }
+.uplot .u-legend { color: var(--text); }
+@media (max-width: 800px) {
+  main { flex-direction: column; }
+  aside { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
+}
+
+/* the ADCs' mux positions on the scope page */
+.adc { margin-top: 8px; }
+.adc .adc_name { font-weight: 600; }
+.adc .adc_rate { color: var(--muted, #8a94a3); font-size: 12px; margin-left: 6px; }
+.adc .positions { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin-top: 4px; }
+.adc .positions label { display: flex; align-items: center; gap: 4px; margin: 0; font-size: 12px; }
+.adc .positions label.unnamed { color: #8a94a3; }
+.adc label.settle { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; font-size: 12px; }
+.adc label.settle input { width: 80px; }

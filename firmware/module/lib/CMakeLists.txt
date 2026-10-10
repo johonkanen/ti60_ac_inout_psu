@@ -1,0 +1,5 @@
+add_subdirectory_ifdef(CONFIG_FW_UPDATE fw_update)
+add_subdirectory_ifdef(CONFIG_HTTP_FILES http_files)
+add_subdirectory_ifdef(CONFIG_REGISTER_BUS register_bus)
+add_subdirectory_ifdef(CONFIG_WORD_MEMCPY word_memcpy)
+add_subdirectory_ifdef(CONFIG_TCP_STREAM tcp_stream)

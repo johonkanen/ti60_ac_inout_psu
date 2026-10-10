@@ -1,0 +1,7 @@
+config SPI_EFINIX_SAPPHIRE
+	bool "Efinix Sapphire SoC SPI master"
+	default y
+	depends on DT_HAS_EFINIX_SAPPHIRE_SPI_ENABLED && SPI
+	help
+	  Polled driver for the Sapphire SoC's SPI master, single data line,
+	  controller chip selects.

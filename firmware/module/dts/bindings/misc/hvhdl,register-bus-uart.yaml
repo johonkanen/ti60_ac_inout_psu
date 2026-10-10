@@ -1,0 +1,21 @@
+description: |
+  A register bus of hVHDL_fpga_interconnect reached through a Sapphire SoC UART that is
+  wired, inside the FPGA, to the bus's fpga_communications UART. 16 bit addresses,
+  32 bit data, the serial protocol of fpga_communication's uart_link:
+    read:   0x02 address           -> 6 (bytes to follow), 0x0000, 4 data bytes
+    write:  0x04 address data
+    stream: 0x05 address count(3)  -> count times 4 data bytes
+  All big endian. The UART clock is the SoC's, CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC.
+
+compatible: "hvhdl,register-bus-uart"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true
+
+  current-speed:
+    type: int
+    required: true
+    description: Baud rate of the bus UART, which must divide the SoC clock by 8 exactly.

@@ -1,0 +1,6 @@
+board:
+  name: ti60_evm_eth
+  full_name: Ti60F225 development kit, Efinix TSEMAC design
+  vendor: efinix
+  socs:
+  - name: efinix_sapphire

@@ -1,0 +1,3 @@
+zephyr_library()
+zephyr_library_sources(tcp_stream.c)
+zephyr_library_sources_ifdef(CONFIG_TCP_STREAM_WEBSOCKET ws_stream.c)

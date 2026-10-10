@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ti60 Data Collection</title>
+<link rel="stylesheet" href="uPlot.min.css">
+<link rel="stylesheet" href="scope.css">
+</head>
+<body>
+<header>
+  <h1>Ti60 Data Collection</h1>
+  <nav><a href="index.html">Scope</a> · <a href="update.html">Update</a></nav>
+  <div class="buttons">
+    <button id="start" class="primary">Start</button>
+    <button id="stop">Stop</button>
+    <button id="export" title="the 1 ms points of the view, in the channels' units">Export CSV</button>
+    <button id="record_points" title="write every 1 ms point to a CSV file until stopped" disabled>Record 1 ms</button>
+    <button id="record" title="save the stream's next seconds to a file, every sample, raw" disabled>Record raw</button>
+    <input id="record_seconds" type="number" min="1" max="60" value="5" title="seconds to record raw">
+  </div>
+  <div id="status" class="status">connecting…</div>
+</header>
+<main>
+  <aside>
+    <section>
+      <h2>Collection</h2>
+      <label>Sample rate <select id="rate"></select></label>
+      <label>Window <select id="window"></select></label>
+      <label>Plots
+        <select id="plot_count">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="each">One per channel</option>
+        </select>
+      </label>
+      <p class="note">Each channel's P selector puts it in a plot, e.g. the voltages in one and
+        the currents in another. Click a name above a plot to hide or show it there; drag the
+        handle under a plot to resize it.</p>
+      <p class="note">Every millisecond of the stream is one point per channel: its minimum,
+        maximum (the band) and mean (the line), from every sample, and its first sample (the
+        instantaneous value). Each plot shows either.</p>
+    </section>
+    <section>
+      <h2>Channels</h2>
+      <div id="channels"></div>
+    </section>
+    <section>
+      <h2>Scaling</h2>
+      <p class="note">value = (counts − zero) / counts per unit, per source, kept on the board
+        for every browser.</p>
+      <table id="scaling" class="compact">
+        <thead><tr><th>Source</th><th>Unit</th><th>Zero</th><th>Counts/unit</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="row">
+        <button id="save_scaling" class="small">Save</button>
+        <span id="scaling_status" class="status"></span>
+      </div>
+    </section>
+  </aside>
+  <div class="display">
+    <div class="row toolbar">
+      <button id="live" class="small active" title="follow the newest data">Live</button>
+      <button id="pause" class="small" title="freeze the view; collection goes on">Pause</button>
+      <button id="zoom_out" class="small" title="the whole history kept, 5 min">Zoom out</button>
+      <span class="note">drag across a plot to zoom in</span>
+    </div>
+    <div id="plots"></div>
+    <table id="measurements">
+      <thead><tr><th>Channel</th><th>Source</th><th>Unit</th><th>Last ms</th><th>Min</th><th>Max</th><th>Mean</th><th>Pk-pk</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+<script src="uPlot.iife.min.js"></script>
+<script src="plots.js"></script>
+<script src="collect.js"></script>
+</body>
+</html>

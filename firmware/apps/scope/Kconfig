@@ -1,0 +1,27 @@
+config SCOPE_CAPTURE_HW
+	bool "Capture with the FPGA's scope_capture"
+	default y
+	depends on DT_HAS_HVHDL_SCOPE_CAPTURE_ENABLED
+	help
+	  The scope_capture block of ti60_ac_psu's tsemac_soc design, its deep
+	  capture written into a ring in this RAM by a DMA channel. Without it
+	  the captures come from a software model of its test generator.
+
+config SCOPE_RING_RECORDS
+	int "Records in the capture ring"
+	default 65536
+	depends on SCOPE_CAPTURE_HW
+	help
+	  A record is a sample of all eight channels, 16 bytes. A power of two.
+
+config SCOPE_STREAM
+	bool "Stream the FPGA's continuous capture on a WebSocket of its own"
+	default y
+	depends on SCOPE_CAPTURE_HW
+	select TCP_STREAM
+	select TCP_STREAM_WEBSOCKET
+	help
+	  Port 5004 (stream.c): sent from the capture ring by tcp_stream beside
+	  the network stack, as fast as the link takes it.
+
+source "Kconfig.zephyr"

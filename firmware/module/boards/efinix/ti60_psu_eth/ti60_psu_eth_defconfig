@@ -1,0 +1,25 @@
+CONFIG_CONSOLE=y
+CONFIG_SERIAL=y
+CONFIG_UART_CONSOLE=y
+CONFIG_HEAP_MEM_POOL_SIZE=65536
+
+# the CLINT and the UART run from the design's 125 MHz io_tseClk (tsemac_soc_top.v)
+CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC=125000000
+
+# The upstream Sapphire SoC port leaves the PLIC unusable; it only ever uses the
+# polled UART, so it never showed:
+# - the level 2 (PLIC) ISR table offset is 0, overlapping the 12 local RISC-V interrupts
+# - MAX_IRQ_PER_AGGREGATOR is 0, so the PLIC driver takes every line as spurious
+# NUM_IRQS is fixed at 36 by the SoC, which leaves table room for PLIC lines 0..23:
+# UART 1, SPI 4 and the Ethernet DMA 16/17 all fit.
+CONFIG_2ND_LVL_ISR_TBL_OFFSET=12
+CONFIG_MAX_IRQ_PER_AGGREGATOR=24
+
+# Optimised for speed, with picolibc built from its module: the Zephyr SDK's picolibc and
+# a size optimised build both copy memory one byte per loop, which a write-through data
+# cache in front of slow memory makes the main cost of networking (profiled: 40% of the
+# CPU). Picolibc's word-wise copies follow CONFIG_SIZE_OPTIMIZATIONS being off.
+CONFIG_SPEED_OPTIMIZATIONS=y
+CONFIG_PICOLIBC_USE_MODULE=y
+# and copies of differently aligned buffers in words too, as the network stack's are
+CONFIG_WORD_MEMCPY=y

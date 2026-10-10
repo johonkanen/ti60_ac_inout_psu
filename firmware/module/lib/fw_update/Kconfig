@@ -1,0 +1,37 @@
+config FW_UPDATE
+	bool "Firmware update over HTTP"
+	depends on FLASH_MAP && HTTP_SERVER && REBOOT && XIP
+	depends on $(dt_nodelabel_enabled,slot0_partition) && $(dt_nodelabel_enabled,slot1_partition)
+	depends on $(dt_nodelabel_enabled,loader_partition)
+	select CRC
+	help
+	  POST a zephyr.bin to an HTTP resource: it is written to the image
+	  slot of the second-stage loader (loader/) that is not running, and
+	  the board reboots into it. XIP: the running slot is recognised by
+	  the image region, which Zephyr does not write then.
+
+if FW_UPDATE
+
+config FW_UPDATE_REBOOT_DELAY_MS
+	int "Delay between the response and the reboot"
+	default 500
+
+config FW_UPDATE_FPGA
+	bool "FPGA update: the application image of the remote_update scheme"
+	default y
+	depends on DT_HAS_HVHDL_REMOTE_UPDATE_ENABLED
+	depends on $(dt_nodelabel_enabled,fpga_application_partition)
+	depends on $(dt_nodelabel_enabled,fpga_state_partition)
+	help
+	  fpga_update.h: images/application_update.bin of ti60_ac_psu's
+	  tsemac_soc goes to the FPGA application image and the FPGA reloads
+	  from it; at boot the golden image switches to it. No JTAG needed.
+
+config FW_UPDATE_FPGA_CONFIRM_S
+	int "Seconds an application image runs before it counts as working"
+	default 10
+	depends on FW_UPDATE_FPGA
+	help
+	  Until then a power cycle leaves the board on the golden image.
+
+endif

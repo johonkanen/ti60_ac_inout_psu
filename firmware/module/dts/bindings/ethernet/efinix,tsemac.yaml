@@ -1,0 +1,41 @@
+description: |
+  Efinix Triple Speed Ethernet MAC with the Sapphire scatter-gather DMA.
+  reg: "mac" is the MAC APB window, including the example design's control
+  registers at offset 0x200; "dma" is the DMA APB window. Interrupt 0 is the
+  receive DMA channel, interrupt 1 the transmit channel.
+
+compatible: "efinix,tsemac"
+
+include: ethernet-controller.yaml
+
+properties:
+  reg:
+    required: true
+
+  reg-names:
+    required: true
+
+  interrupts:
+    required: true
+
+  phy-register-updates:
+    type: array
+    description: |
+      Triples of PHY register, mask and value: the bits of mask are replaced by value,
+      a mask of 0xffff writes the register. Done in order when the interface comes up,
+      then autonegotiation is restarted. For the RGMII delays and quirks of the board's
+      PHY, which the PHY driver does not set up.
+
+  tx-checksum-offload:
+    type: boolean
+    description: |
+      The design fills in the IPv4 header, TCP, UDP and ICMP checksums of transmitted
+      frames (ti60_ac_psu's tx_checksum_inserter between the DMA and the MAC), so the
+      network stack leaves them out. The TSEMAC itself computes none.
+
+  rx-clock-reset-on-link-up:
+    type: boolean
+    description: |
+      Pulse the design's PHY reset control bit when the link comes up. On boards whose
+      design uses that bit to restart the PLL behind the PHY's RGMII receive clock, which
+      stops while the link is down.

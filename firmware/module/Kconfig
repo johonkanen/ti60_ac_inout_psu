@@ -1,0 +1,7 @@
+rsource "drivers/ethernet/Kconfig"
+rsource "drivers/spi/Kconfig"
+rsource "lib/fw_update/Kconfig"
+rsource "lib/http_files/Kconfig"
+rsource "lib/register_bus/Kconfig"
+rsource "lib/word_memcpy/Kconfig"
+rsource "lib/tcp_stream/Kconfig"

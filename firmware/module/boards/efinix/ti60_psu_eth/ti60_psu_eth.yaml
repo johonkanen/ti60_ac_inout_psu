@@ -1,0 +1,11 @@
+identifier: ti60_psu_eth
+name: ti60_ac_psu board with the tsemac_soc design
+type: mcu
+arch: riscv
+toolchain:
+  - zephyr
+ram: 14336
+supported:
+  - uart
+  - netif:eth
+vendor: efinix

@@ -1,0 +1,13 @@
+CONFIG_CONSOLE=y
+CONFIG_SERIAL=y
+CONFIG_UART_CONSOLE=y
+CONFIG_XIP=n
+CONFIG_HEAP_MEM_POOL_SIZE=4096
+
+# the SoC runs from the design's 200 MHz hyperram_clock, and so do its CLINT and UARTs
+CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC=200000000
+
+# The upstream Sapphire SoC port leaves the PLIC unusable: the level 2 ISR table
+# offset overlaps the local interrupts and MAX_IRQ_PER_AGGREGATOR is 0. See ti60_evm_eth.
+CONFIG_2ND_LVL_ISR_TBL_OFFSET=12
+CONFIG_MAX_IRQ_PER_AGGREGATOR=24

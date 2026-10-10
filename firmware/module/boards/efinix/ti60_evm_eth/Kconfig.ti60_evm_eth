@@ -1,0 +1,2 @@
+config BOARD_TI60_EVM_ETH
+	select SOC_EFINIX_SAPPHIRE

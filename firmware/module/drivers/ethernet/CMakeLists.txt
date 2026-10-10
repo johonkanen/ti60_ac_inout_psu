@@ -1,0 +1,3 @@
+zephyr_library()
+zephyr_library_sources_ifdef(CONFIG_ETH_EFINIX_TSEMAC  eth_efinix_tsemac.c)
+zephyr_library_sources_ifdef(CONFIG_MDIO_EFINIX_TSEMAC mdio_efinix_tsemac.c)

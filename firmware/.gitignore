@@ -1,0 +1,19 @@
+# west workspace, fetched by west update
+/.west/
+/zephyr/
+/modules/
+/.venv/
+/build/
+
+# Efinity outputs and the generated Sapphire IP (fpga/*/build.sh soc)
+fpga/*/ip/
+fpga/*/embedded_sw/
+fpga/*/work_*/
+fpga/*/outflow/
+fpga/*/*.peri.xml
+fpga/*/build.log
+fpga/*/console.log
+fpga/*/__pycache__/
+fpga/*/ocd.log
+fpga/*/flash/
+__pycache__/

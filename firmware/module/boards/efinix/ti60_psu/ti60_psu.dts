@@ -1,0 +1,45 @@
+/*
+ * The ti60_ac_psu board (Ti60F225) running fpga/board_test_cpu: board_test with a
+ * Sapphire SoC beside it. rv32imac at 200 MHz, 64 KB on-chip RAM, no external memory yet.
+ *
+ * UART0 is the console on the board's UART pins. UART1 is wired inside the FPGA to
+ * board_test's register bus UART: the register bus at 5 Mbaud, see module/lib/register_bus.
+ */
+
+/dts-v1/;
+
+#include <efinix/sapphire_soc.dtsi>
+
+/ {
+	model = "ti60_ac_psu, board_test_cpu design";
+	compatible = "efinix,ti60-psu";
+
+	chosen {
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+		zephyr,sram = &ram0;
+	};
+};
+
+&ram0 {
+	reg = <0xf9000000 DT_SIZE_K(64)>;
+};
+
+&{/cpus/cpu@0} {
+	clock-frequency = <200000000>;
+	riscv,isa-extensions = "i", "m", "a", "c", "zicsr", "zifencei";
+};
+
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;
+};
+
+&{/soc} {
+	register_bus: register-bus@f8015000 {
+		compatible = "hvhdl,register-bus-uart";
+		reg = <0xf8015000 0x40>;
+		current-speed = <5000000>;
+		status = "okay";
+	};
+};

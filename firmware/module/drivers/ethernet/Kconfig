@@ -1,0 +1,46 @@
+config ETH_EFINIX_TSEMAC
+	bool "Efinix TSEMAC with scatter-gather DMA"
+	default y
+	depends on DT_HAS_EFINIX_TSEMAC_ENABLED && NET_L2_ETHERNET
+	select MDIO
+	select NET_CHECKSUM_OFFLOAD_SUPPORTED
+	help
+	  Efinix Triple Speed Ethernet MAC fed by the Sapphire scatter-gather DMA,
+	  as in Efinix's TSEMAC example designs.
+
+if ETH_EFINIX_TSEMAC
+
+config ETH_EFINIX_TSEMAC_RX_DESCRIPTORS
+	int "Receive descriptors"
+	default 16
+
+config ETH_EFINIX_TSEMAC_TX_DESCRIPTORS
+	int "Transmit descriptors, the most fragments a frame is sent from"
+	default 16
+	help
+	  The DMA reads a frame straight from its network buffers, one
+	  descriptor each. A frame in more fragments is copied into one
+	  buffer first.
+
+config ETH_EFINIX_TSEMAC_TX_BATCH
+	int "Most frames in a batch of eth_efinix_tx_batch()"
+	default 64
+	help
+	  Frames a sender beside the stack (tcp_stream) hands the transmit
+	  DMA in one go, two descriptors each.
+
+config ETH_EFINIX_TSEMAC_PROMISCUOUS
+	bool "Receive all frames in the MAC"
+	default y
+	help
+	  The MAC's address filter passes no frames at all, not even broadcast.
+	  Efinix's Linux driver ends up promiscuous too: it enables it whenever
+	  more than one multicast group is joined. Zephyr's Ethernet layer still
+	  drops frames that are not for this interface.
+
+endif
+
+config MDIO_EFINIX_TSEMAC
+	bool "Efinix TSEMAC MDIO"
+	default y
+	depends on DT_HAS_EFINIX_TSEMAC_MDIO_ENABLED && MDIO

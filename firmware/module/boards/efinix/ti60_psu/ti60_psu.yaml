@@ -1,0 +1,10 @@
+identifier: ti60_psu
+name: ti60_ac_psu board with the board_test_cpu design
+type: mcu
+arch: riscv
+toolchain:
+  - zephyr
+ram: 64
+supported:
+  - uart
+vendor: efinix

@@ -1,0 +1,169 @@
+/*
+ * The ti60_ac_psu board (Ti60F225) running fpga/tsemac_soc: Efinix's TSEMAC
+ * Linux example design ported to the board. One rv32imac hart at 200 MHz, peripherals and
+ * machine timer at 125 MHz, 64 MB HyperRAM, TSEMAC behind the scatter-gather DMA on the
+ * board's PEF7071 PHY, gigabit only.
+ *
+ * The memory and flash layouts are ti60_evm_eth's: Zephyr's image region of 2 MB at
+ * 0x01000000 and RAM after it to the end of the HyperRAM; the loader (firmware/loader)
+ * at flash 0x600000, which tsemac_soc's boot0 starts, boots the newest of two image slots.
+ */
+
+/dts-v1/;
+
+#include <efinix/sapphire_soc.dtsi>
+
+/delete-node/ &ram0;
+
+/ {
+	model = "ti60_ac_psu, tsemac_soc design";
+	compatible = "efinix,ti60-psu-eth";
+
+	chosen {
+		zephyr,console = &uart0;
+		zephyr,shell-uart = &uart0;
+		zephyr,sram = &ram0;
+		zephyr,flash = &image0;
+	};
+
+	image0: memory@1000000 {
+		reg = <0x01000000 DT_SIZE_M(2)>;
+	};
+
+	ram0: memory@1200000 {
+		device_type = "memory";
+		reg = <0x01200000 DT_SIZE_M(46)>;
+	};
+};
+
+&{/cpus/cpu@0} {
+	clock-frequency = <200000000>;
+	riscv,isa-extensions = "i", "m", "a", "c", "zicsr", "zifencei";
+};
+
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;
+};
+
+&{/soc} {
+	mdio: mdio@f8100100 {
+		compatible = "efinix,tsemac-mdio";
+		reg = <0xf8100100 0x20>, <0xf8100200 0x20>;
+		reg-names = "mdio", "ctrl";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		/* PEF7071; board_test configures it the same way (ethernet_phy_init.vhd) */
+		phy0: ethernet-phy@0 {
+			compatible = "ethernet-phy";
+			reg = <0>;
+			default-speeds = "1000BASE Full-Duplex";
+			status = "okay";
+		};
+	};
+
+	spi0: spi@f8014000 {
+		compatible = "efinix,sapphire-spi";
+		reg = <0xf8014000 0x1000>;
+		clock-frequency = <125000000>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		/* the FPGA configuration flash, W25Q64JW */
+		flash0: flash@0 {
+			compatible = "jedec,spi-nor";
+			reg = <0>;
+			spi-max-frequency = <25000000>;
+			size = <DT_SIZE_M(64)>; /* bits */
+			jedec-id = [ef 60 17];
+			status = "okay";
+
+			partitions {
+				compatible = "fixed-partitions";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				/*
+				 * FPGA images (fpga_update.h), compressed bitstreams of about
+				 * 800 KB: the golden one loaded at power-up, written only over
+				 * JTAG, the application one it switches to, and the state of that.
+				 */
+				fpga_golden_partition: partition@0 {
+					label = "fpga-golden";
+					reg = <0x000000 0x100000>;
+					read-only;
+				};
+
+				fpga_application_partition: partition@100000 {
+					label = "fpga-application";
+					reg = <0x100000 0xff000>;
+				};
+
+				fpga_state_partition: partition@1ff000 {
+					label = "fpga-state";
+					reg = <0x1ff000 0x1000>;
+				};
+
+				/*
+				 * Zephyr images, booted by the second-stage loader (loader/): the
+				 * newest valid slot. Updates write the other one.
+				 */
+				slot0_partition: partition@200000 {
+					label = "slot-0";
+					reg = <0x200000 0x200000>;
+				};
+
+				slot1_partition: partition@400000 {
+					label = "slot-1";
+					reg = <0x400000 0x200000>;
+				};
+
+				/* copied to 0x01000000 and started by the design's bootloader */
+				loader_partition: partition@600000 {
+					label = "loader";
+					reg = <0x600000 0x10000>;
+				};
+
+				storage_partition: partition@610000 {
+					label = "storage";
+					reg = <0x610000 0x1f0000>;
+				};
+			};
+		};
+	};
+
+	/* remote_update.vhd: registers 800.. of the register bus on APB slave 3 */
+	remote_update: remote-update@f8130c80 {
+		compatible = "hvhdl,remote-update";
+		reg = <0xf8130c80 0x10>;
+	};
+
+	/* board_test's oscilloscope: registers on APB slave 3, its DMA on APB slave 2 */
+	scope: scope@f8130000 {
+		compatible = "hvhdl,scope-capture";
+		reg = <0xf8130000 0x10000>, <0xf8120000 0x80>;
+		reg-names = "registers", "dma";
+		base-address = <600>;
+		status = "okay";
+	};
+
+	eth0: ethernet@f8100000 {
+		compatible = "efinix,tsemac";
+		reg = <0xf8100000 0x10000>, <0xf8110000 0x10000>;
+		reg-names = "mac", "dma";
+		interrupt-parent = <&plic0>;
+		interrupts = <16 1>, <17 1>;
+		local-mac-address = [02 00 00 50 53 55];
+		phy-handle = <&phy0>;
+		phy-connection-type = "rgmii";
+		/* MIICTRL: RGMII with the PHY's receive and transmit clock skews */
+		phy-register-updates = <0x17 0xffff 0xc500>;
+		rx-clock-reset-on-link-up;
+		/* tsemac_soc's tx_checksum_inserter */
+		tx-checksum-offload;
+		status = "okay";
+	};
+};

@@ -1,0 +1,11 @@
+config HTTP_FILES
+	bool "List, write and delete files over HTTP"
+	depends on FILE_SYSTEM && HTTP_SERVER && HTTP_SERVER_RESOURCE_WILDCARD
+
+if HTTP_FILES
+
+config HTTP_FILES_ROOT
+	string "Directory of the files"
+	default "/web"
+
+endif

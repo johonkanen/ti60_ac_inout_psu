@@ -1,0 +1,12 @@
+description: |
+  The Titanium's internal reconfiguration (remote update) on the register bus of
+  ti60_ac_psu's tsemac_soc (remote_update/remote_update.vhd): the role of the running
+  image, whether the FPGA fell back to the golden image, and the reconfigure command.
+
+compatible: "hvhdl,remote-update"
+
+include: base.yaml
+
+properties:
+  reg:
+    required: true

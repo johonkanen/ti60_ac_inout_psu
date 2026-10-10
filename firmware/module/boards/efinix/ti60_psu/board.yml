@@ -1,0 +1,6 @@
+board:
+  name: ti60_psu
+  full_name: ti60_ac_psu board, board_test_cpu design
+  vendor: efinix
+  socs:
+  - name: efinix_sapphire

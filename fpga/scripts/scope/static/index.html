@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ti60 Scope</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css">
+<link rel="stylesheet" href="scope.css">
+</head>
+<body>
+<header>
+  <h1>Ti60 Scope</h1>
+  <div class="buttons">
+    <button id="run" class="primary">Run</button>
+    <button id="single">Single</button>
+    <button id="stop">Stop</button>
+    <button id="force">Force trigger</button>
+    <button id="full_view">Full view</button>
+    <button id="export">Export CSV</button>
+  </div>
+  <div id="status" class="status">connecting…</div>
+</header>
+<main>
+  <aside>
+    <section>
+      <h2>Acquisition</h2>
+      <label>Memory
+        <select id="memory">
+          <option value="bram">Block RAM, up to 4096 samples</option>
+          <option value="deep">HyperRAM, up to 4M samples</option>
+        </select>
+      </label>
+      <label>Sample rate <select id="rate"></select></label>
+      <label>Record length <select id="length"></select></label>
+      <label>Mode
+        <select id="mode">
+          <option value="auto">Auto</option>
+          <option value="normal">Normal</option>
+          <option value="free">Free run (no trigger)</option>
+        </select>
+      </label>
+      <label>Pre-trigger <span id="pre_value"></span>
+        <input id="pre_percent" type="range" min="0" max="100" step="5">
+      </label>
+    </section>
+    <section>
+      <h2>Trigger</h2>
+      <label>Channel <select id="trigger_channel"></select></label>
+      <label>Edge
+        <select id="trigger_edge">
+          <option value="0">Rising</option>
+          <option value="1">Falling</option>
+          <option value="2">Either</option>
+          <option value="3">Pattern (digital)</option>
+        </select>
+      </label>
+      <label id="level_row">Level (counts) <input id="trigger_level" type="number" min="-32768" max="65535" step="100"></label>
+      <label class="pattern-row">Lanes that matter (hex mask) <input id="trigger_mask" type="text" spellcheck="false"></label>
+      <label class="pattern-row">Pattern of those lanes (hex) <input id="trigger_pattern" type="text" spellcheck="false"></label>
+    </section>
+    <section>
+      <h2>Channels</h2>
+      <div id="channels"></div>
+    </section>
+    <section>
+      <h2>Test generator</h2>
+      <label>Frequency (Hz) <input id="generator_hz" type="number" min="0" step="any"></label>
+    </section>
+  </aside>
+  <div class="display">
+    <div id="view_info" class="view-info"></div>
+    <div id="plot"></div>
+    <div id="logic"></div>
+    <table id="measurements">
+      <thead><tr><th>Channel</th><th>Source</th><th>Min</th><th>Max</th><th>Pk-pk</th><th>Mean</th><th>RMS</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+<script src="scope.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+description: |
+  MDIO master of the Efinix Triple Speed Ethernet MAC.
+  reg: "mdio" is the MAC's MDIO register window (MAC base + 0x100), "ctrl" the
+  example design's reset control registers (MAC base + 0x200). The MAC and PHY
+  are taken out of reset when this device initialises.
+
+compatible: "efinix,tsemac-mdio"
+
+include: mdio-controller.yaml
+
+properties:
+  reg:
+    required: true
+
+  reg-names:
+    required: true
+

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ti60 Update</title>
+<link rel="stylesheet" href="scope.css">
+</head>
+<body>
+<header>
+  <h1>Ti60 Update</h1>
+  <nav><a href="index.html">Scope</a> · <a href="collect.html">Data collection</a></nav>
+</header>
+<main class="page">
+  <section>
+    <h2>Firmware</h2>
+    <p class="note">The image goes into the slot that is not running and is checked before
+      the board boots it; until then the old one stays the one that boots, so a failed upload
+      or a power cut leaves the board running as before. Takes zephyr.bin of the scope app
+      (build/scope_psu/zephyr/zephyr.bin), the loader (build/loader/loader.bin) or an FPGA
+      image (fpga/tsemac_soc/images/application_update.bin).</p>
+    <p class="note">FPGA: the golden image at power-up switches to the application image, which
+      an upload replaces. A new application image is tried once and counts as working after it
+      has run 10 s; if it fails to load or hangs, the golden image stays (after a power cycle
+      for a hang), and it can take another upload. The golden image itself is never written
+      over the network.</p>
+    <div id="fpga" class="status"></div>
+    <table id="slots">
+      <thead><tr><th>Slot</th><th>State</th><th>Sequence</th><th>Size</th><th>CRC-32</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="row">
+      <input id="image" type="file" accept=".bin">
+      <button id="install" class="primary" disabled>Install</button>
+    </div>
+    <div id="image_info" class="note"></div>
+    <progress id="progress" max="1" value="0" hidden></progress>
+    <div id="update_status" class="status"></div>
+  </section>
+
+  <section>
+    <h2>Web pages</h2>
+    <p class="note">The pages in the board's flash. Choose the files of apps/scope/web to
+      replace them; each is gzipped here and replaces its old copy only once complete.</p>
+    <table id="files">
+      <thead><tr><th>File</th><th>Size</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="row">
+      <input id="web_files" type="file" multiple>
+      <button id="upload" disabled>Upload</button>
+    </div>
+    <div id="files_status" class="status"></div>
+  </section>
+</main>
+<script src="update.js"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+description: |
+  SPI master of the Efinix Sapphire SoC (SpinalHDL SpiXdrMaster, Linux
+  "spinal-lib,spi-1.0"). Commands and responses go through FIFOs; chip selects
+  are driven by the controller, one per ss line.
+
+compatible: "efinix,sapphire-spi"
+
+include: spi-controller.yaml
+
+properties:
+  reg:
+    required: true
+
+  clock-frequency:
+    type: int
+    required: true
+    description: |
+      Clock of the SPI block (the SoC's system or peripheral clock); SCLK is
+      clock-frequency / ((divider + 1) * 2).
+
+  cmd-fifo-depth:
+    type: int
+    default: 256
+    description: Command FIFO depth, SYSTEM_SPI_n_IO_PARAMETER_CMD_FIFO_DEPTH in soc.h.
+
+  rsp-fifo-depth:
+    type: int
+    default: 256
+    description: Response FIFO depth, SYSTEM_SPI_n_IO_PARAMETER_RSP_FIFO_DEPTH in soc.h.
