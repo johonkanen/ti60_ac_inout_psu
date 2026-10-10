@@ -626,11 +626,12 @@ function prefilterResponse(hz) {
 }
 
 // the closed loop after the prefilter, from the points to the output voltage (the observer's),
-// measured on the board on 2026-10-10 with 10 V tones at the default tuning (voltage loop 1 kHz,
-// its zero 0.1, prefilter 1 kHz with feedforward): [Hz, gain, phase in degrees]; between the
-// tones interpolated, beyond them the nearest's
-const LOOP_RESPONSE = [[50, 0.979, 0.1], [150, 1.145, 2.8], [250, 1.182, -6.4], [350, 1.109, -11.9],
-                       [450, 1.066, -11.6], [550, 1.061, -9.5], [650, 1.072, -12.2]];
+// measured on the board on 2026-10-10 by measure_loop_response.py with tones at its tuning then
+// (voltage loop 1000 Hz, its zero 0.1, b 1, current loop 3000 Hz, prefilter 1000 Hz, feedforward
+// 1): [Hz, gain, phase in degrees]; between the tones interpolated, beyond them the nearest's
+const LOOP_RESPONSE = [[50, 0.981, 0.3], [150, 1.154, 2.4], [250, 1.171, -8.1],
+                       [350, 1.084, -11.4], [450, 1.067, -12.3], [550, 1.065, -9.5],
+                       [650, 1.075, -11.5]];
 
 function loopResponse(hz) {
   const r = LOOP_RESPONSE;
