@@ -8,6 +8,8 @@
 #include <zephyr/net/http/service.h>
 #include <zephyr/fs/fs.h>
 #include <zephyr/net/net_if.h>
+#include <zephyr/net/net_ip.h>
+#include <stdio.h>
 #include <fw_update.h>
 #include <http_files.h>
 #include "scope.h"
@@ -54,6 +56,37 @@ HTTP_RESOURCE_DEFINE(ws_resource, scope_service, "/ws", &ws);
 HTTP_RESOURCE_DEFINE(update_resource, scope_service, "/update", &fw_update_resource);
 HTTP_RESOURCE_DEFINE(files_resource, scope_service, "/files/*", &http_files_resource);
 
+/*
+ * The face panel's LCD shows the board's address: checked every 2 s, its line (the text's
+ * third row) rewritten and the screen redrawn when it changes (a DHCP lease, or none yet).
+ */
+#define LCD_ADDRESS_ROW 2
+
+static void lcd_address_update(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(lcd_address_work, lcd_address_update);
+
+static void lcd_address_update(struct k_work *work)
+{
+	static char shown[25] = "";
+	char address[NET_IPV4_ADDR_LEN] = "...";
+	char line[25];
+	struct net_in_addr *ip = net_if_ipv4_get_global_addr(net_if_get_default(), NET_ADDR_PREFERRED);
+	uint32_t cols = MIN(capture_lcd_cols(), sizeof(line) - 1);
+
+	if (ip != NULL) {
+		net_addr_ntop(NET_AF_INET, ip, address, sizeof(address));
+	}
+	/* the whole row, padded with spaces over what was there */
+	snprintf(line, sizeof(line), "IP %-*s", (int)cols, address);
+	line[cols] = '\0';
+	if (strcmp(line, shown) != 0) {
+		capture_lcd_text(LCD_ADDRESS_ROW * cols, line);
+		capture_lcd_draw();
+		memcpy(shown, line, sizeof(shown));
+	}
+	k_work_reschedule(k_work_delayable_from_work(work), K_SECONDS(2));
+}
+
 int main(void)
 {
 	struct fs_dirent entry;
@@ -78,6 +111,7 @@ int main(void)
 		printk("no web client in flash yet: apps/scope/upload_web.sh <address>\n");
 	}
 	http_server_start();
+	k_work_reschedule(&lcd_address_work, K_NO_WAIT);
 #ifdef CONFIG_SCOPE_STREAM
 	/* the stream answers on the board's address, which a DHCP lease may bring late */
 	for (int s = 0; s < 30; s++) {

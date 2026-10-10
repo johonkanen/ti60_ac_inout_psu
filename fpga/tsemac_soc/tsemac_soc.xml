@@ -72,6 +72,8 @@
         <efx:design_file name="output_bridge_test.vhd" version="default" library="default" />
         <efx:design_file name="input_bridge_test.vhd" version="default" library="default" />
         <efx:design_file name="../source/control/input_boost_control.vhd" version="default" library="default" />
+        <efx:design_file name="../source/lcd/lcd_font_pkg.vhd" version="default" library="default" />
+        <efx:design_file name="../source/lcd/lcd_display.vhd" version="default" library="default" />
         <efx:design_file name="image_role_pkg.vhd" version="default" library="default" />
         <efx:design_file name="remote_update/remote_update.vhd" version="default" library="default" />
         <efx:design_file name="tsemac_soc_top.vhd" version="default" library="default" />

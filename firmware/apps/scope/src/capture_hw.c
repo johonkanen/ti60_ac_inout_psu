@@ -688,6 +688,27 @@ double capture_boost_value(int which)
 	return (int32_t)sys_read32(BOOST_REGISTER(registers[which])) / 1048576.0;
 }
 
+/* lcd_display.vhd's registers at 1300: 0 bit1 draw, 4 a character (code, place << 16),
+ * 7 the text's size (cols, rows << 8) */
+#define LCD_REGISTER(r) (REGISTERS + 4 * 1300 + 4 * (r))
+
+void capture_lcd_text(uint32_t place, const char *text)
+{
+	for (; *text != '\0'; text++, place++) {
+		sys_write32((place << 16) | (uint8_t)*text, LCD_REGISTER(4));
+	}
+}
+
+void capture_lcd_draw(void)
+{
+	sys_write32(BIT(1), LCD_REGISTER(0));
+}
+
+uint32_t capture_lcd_cols(void)
+{
+	return sys_read32(LCD_REGISTER(7)) & 0xff;
+}
+
 /* register 12: the output's watchdog kicked (13 its time, 1 s after a reset) */
 void capture_output_kick(void)
 {

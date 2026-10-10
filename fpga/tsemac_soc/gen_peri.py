@@ -218,6 +218,20 @@ for name, pin in [
     design.set_property(name, "IO_STANDARD", "1.8_V_LVCMOS")
     design.assign_resource(name, pin)
 
+# the face panel's LCD (MSP3520, ILI9488 over SPI; lcd_display.vhd), through a 1.8 V to 3.3 V
+# buffer; its touch controller's pins (T_CK GPIOR_P_18, T_CS GPIOR_N_18, T_DIN GPIOR_N_19) unused
+for name, pin in [
+        ("lcd_cs", "GPIOR_N_06"),
+        ("lcd_reset", "GPIOR_P_11"),
+        ("lcd_dc", "GPIOR_P_13"),
+        ("lcd_sck", "GPIOR_N_13"),
+        ("lcd_mosi", "GPIOR_N_16"),
+        ("lcd_led", "GPIOR_P_16"),
+]:
+    design.create_output_gpio(name)
+    design.set_property(name, "IO_STANDARD", "1.8_V_LVCMOS")
+    design.assign_resource(name, pin)
+
 # a board fix: output_inu leg 2's high side is on a flywire to GPIOR_21 (a 3.3 V bank) instead of
 # the schematic's GPIOL_P_09, which is left unassigned (only its weak pull-up, never driven: its
 # trace may still reach the gate driver)

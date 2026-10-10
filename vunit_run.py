@@ -54,6 +54,8 @@ lib.add_source_files(ode / "linalg_pkg.vhd")
 lib.add_source_files(ode / "ode_pkg.vhd")
 lib.add_source_files(root / "source" / "inverter" / "*.vhd")
 lib.add_source_files(root / "source" / "inverter" / "sim" / "*.vhd")
+lib.add_source_files(root / "source" / "lcd" / "*.vhd")
+lib.add_source_files(root / "source" / "lcd" / "sim" / "*.vhd")
 # the output filter's model fitted to a measured step: the data and the fit next to the testbench
 fit_data = (root / "source" / "inverter" / "sim" / "data").resolve()
 lib.test_bench("output_filter_fit_tb").set_generic("g_data_file", str(fit_data / "output_step_m25_p25.csv"))

@@ -114,6 +114,8 @@ entity tsemac_soc_top is
         -- the power stage's isolated sigma-delta current modulators: a common clock, their data
         ;grid_inu_sdm_clock, output_inu_sdm_clock, dab_sdm_clock : out std_logic
         ;grid_inu_sdm_data, output_inu_sdm_data, dab_sdm_data : in std_logic
+        -- the face panel's LCD (ILI9488 over SPI, written only)
+        ;lcd_cs, lcd_reset, lcd_dc, lcd_sck, lcd_mosi, lcd_led : out std_logic
 
         ;system_uart_0_io_txd : out std_logic
         ;system_uart_0_io_rxd : in std_logic
@@ -200,6 +202,7 @@ architecture rtl of tsemac_soc_top is
     signal boost_leg1, boost_leg2 : dhb_leg_gates;
     signal boost_probe, boost_i_ref_probe, boost_duty_probe : scope_sample;
     signal boost_running, test_running : boolean;
+    signal bus_from_lcd         : fpga_interconnect_record := init_fpga_interconnect;
     signal primary_dc_voltage   : fixed_number := fixed_zero;
     signal waveform_ref         : fixed_number;
     signal waveform_finished, waveform_start, waveform_step : boolean;
@@ -332,7 +335,8 @@ begin
     bus_from_slaves <= bus_from_scope and bus_from_adc and bus_from_update and bus_from_gate_power
                        and bus_from_dhb and bus_from_scaler and bus_from_dhb_control
                        and bus_from_protection and bus_from_output and bus_from_output_control
-                       and bus_from_waveform and bus_from_input and bus_from_boost;
+                       and bus_from_waveform and bus_from_input and bus_from_boost
+                       and bus_from_lcd;
 ------------------------------------------------------------------------
     -- the golden or application image (image_role_pkg, written by build.sh), and switching
     -- between them, registers at 800..
@@ -578,6 +582,22 @@ begin
         ,probe          => boost_probe
     );
     test_running <= test_probe(0) = '1';
+
+    -- the face panel's LCD (lcd_display.vhd, registers at 1300..): a screen of text, set up and
+    -- drawn at start, its text written and redrawn by the software (the IP address)
+    u_lcd : entity work.lcd_display
+    generic map(g_base_address => 1300)
+    port map(
+        clock      => io_tseClk
+        ,bus_in    => bus_to_slaves
+        ,bus_out   => bus_from_lcd
+        ,lcd_cs    => lcd_cs
+        ,lcd_reset => lcd_reset
+        ,lcd_dc    => lcd_dc
+        ,lcd_sck   => lcd_sck
+        ,lcd_mosi  => lcd_mosi
+        ,lcd_led   => lcd_led
+    );
     input_leg1  <= (high => test_leg1.high or boost_leg1.high, low => test_leg1.low or boost_leg1.low);
     input_leg2  <= (high => test_leg2.high or boost_leg2.high, low => test_leg2.low or boost_leg2.low);
     -- the scope's "input test": lanes 0..2 the polarity test's, 4 the boost running, 5 its switch on

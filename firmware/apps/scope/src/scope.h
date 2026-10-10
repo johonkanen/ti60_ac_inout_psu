@@ -241,6 +241,11 @@ void capture_boost_start(void);
 void capture_boost_stop(void);
 void capture_boost_kick(void);
 void capture_boost_state(uint32_t state[2]);
+/* the face panel's LCD (lcd_display.vhd, registers at 1300): a screen of text, cols x rows;
+ * a string into it at a place (row * cols + col), and a redraw */
+void capture_lcd_text(uint32_t place, const char *text);
+void capture_lcd_draw(void);
+uint32_t capture_lcd_cols(void);
 /* 0 the current reference, 1 the duty, 2 the input current, 3 the link, 4 the bridge's output
  * current, 5 the input's voltage, 6 v_ref */
 double capture_boost_value(int which);

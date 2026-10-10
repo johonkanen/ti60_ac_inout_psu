@@ -342,6 +342,21 @@ void capture_input_state(uint32_t state[4])
 	state[0] = state[1] = state[2] = state[3] = 0;
 }
 
+void capture_lcd_text(uint32_t place, const char *text)
+{
+	ARG_UNUSED(place);
+	ARG_UNUSED(text);
+}
+
+void capture_lcd_draw(void)
+{
+}
+
+uint32_t capture_lcd_cols(void)
+{
+	return 24;
+}
+
 void capture_boost_set(int reg, double value)
 {
 	ARG_UNUSED(reg);
