@@ -842,4 +842,7 @@ document.querySelector('nav a[href="collect.html"]').addEventListener('click', e
   send({type: 'stop'});
   setTimeout(() => { location.href = e.target.href; }, 200);
 });
+// the board's watchdog: a run (started here or on the waveform page) goes on only while a page
+// is there; this one says so every second
+setInterval(() => send({type: 'heartbeat'}), 1000);
 connect();

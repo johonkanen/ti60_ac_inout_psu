@@ -650,8 +650,29 @@ void scope_settings_load(void)
 
 /* ------------------------------------------------------------------ clients */
 
+/* the output's watchdog: kicked every WATCHDOG_KICK_MS while some client sent a message (a
+ * page's heartbeat, a script's request) in the last CLIENT_SILENCE_MS; with nobody there, or
+ * this firmware stuck, the FPGA brings a run down after its watchdog's 1 s */
+#define WATCHDOG_KICK_MS  200
+#define CLIENT_SILENCE_MS 3000
+static int64_t last_client_message = INT64_MIN / 2;
+
+static void watchdog_kick(struct k_timer *timer)
+{
+	ARG_UNUSED(timer);
+	if (k_uptime_get() - last_client_message < CLIENT_SILENCE_MS) {
+		capture_output_kick();
+	}
+}
+
+K_TIMER_DEFINE(watchdog_timer, watchdog_kick, NULL);
+
 static void handle_command(const char *message)
 {
+	last_client_message = k_uptime_get();
+	if (json_string_is(message, "type", "heartbeat")) {
+		return; /* a page still there: no more than that */
+	}
 	k_mutex_lock(&scope_lock, K_FOREVER);
 	if (json_string_is(message, "type", "config")) {
 		apply_config(message, true);
@@ -846,6 +867,7 @@ static void scope_thread(void *p1, void *p2, void *p3)
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
 
+	k_timer_start(&watchdog_timer, K_MSEC(WATCHDOG_KICK_MS), K_MSEC(WATCHDOG_KICK_MS));
 	while (true) {
 		struct scope_config c;
 		struct scope_capture cap;

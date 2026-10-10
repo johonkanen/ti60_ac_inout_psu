@@ -618,7 +618,13 @@ void capture_output_stop(void)
 
 uint32_t capture_output_status(void)
 {
-	return sys_read32(OUTPUT_REGISTER(0)) & 7;
+	return sys_read32(OUTPUT_REGISTER(0)) & 15;
+}
+
+/* register 12: the output's watchdog kicked (13 its time, 1 s after a reset) */
+void capture_output_kick(void)
+{
+	sys_write32(1, OUTPUT_REGISTER(12));
 }
 
 uint32_t capture_output_periods(void)

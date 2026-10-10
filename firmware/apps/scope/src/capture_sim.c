@@ -321,6 +321,10 @@ void capture_output_stop(void)
 {
 }
 
+void capture_output_kick(void)
+{
+}
+
 uint32_t capture_waveform_capacity(void)
 {
 	return 0; /* no waveform player without the board */

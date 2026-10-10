@@ -337,6 +337,48 @@ begin
                 wait for 100 ns;
                 check(not active, "off: not active");
 
+            elsif run("the_watchdog") then
+                -- a 1 ms watchdog: kicked every 0.5 ms the closed loop runs on; not kicked, it is
+                -- brought down (5 ms) and off, the status saying why; armed and not kicked, it
+                -- is disarmed; 0: no watchdog
+                bus_write(base + 13, to_signed(1, 32));
+                bus_write(base + 4, to_signed(0, 32));
+                bus_write(base + 7, to_signed(2, 32));
+                bus_write(base + 10, to_fixed(15.0));
+                allowed <= true;
+                bus_write(base, to_signed(1, 32));
+                wait until closed_loop_out for 30 us;
+                for k in 1 to 8 loop
+                    wait for 500 us;
+                    bus_write(base + 12, to_signed(1, 32));
+                end loop;
+                check(closed_loop_out, "kicked: running after 4 ms");
+                started := now;
+                wait for 1.1 ms;
+                check(closed_loop_out and voltage_reference = fixed_zero, "not kicked: brought down");
+                wait until not closed_loop_out for 6 ms;
+                check(not closed_loop_out, "off");
+                check(now - started > 5.9 ms and now - started < 6.2 ms, "the watchdog's 1 ms, then the 5 ms ramp down");
+                bus_read(base, v);
+                check_equal(v, 8, "the status: stopped by the watchdog");
+                -- armed while the DHB is not running, not kicked: disarmed
+                allowed <= false;
+                bus_write(base, to_signed(1, 32));
+                bus_read(base, v);
+                check_equal(v, 4, "armed (a new arm clears the watchdog's bit)");
+                wait for 1.2 ms;
+                bus_read(base, v);
+                check_equal(v, 8, "disarmed by the watchdog");
+                -- no watchdog
+                bus_write(base + 13, to_signed(0, 32));
+                allowed <= true;
+                bus_write(base, to_signed(1, 32));
+                wait until closed_loop_out for 30 us;
+                wait for 3 ms;
+                check(closed_loop_out, "no watchdog: running on");
+                bus_write(base, to_signed(2, 32));
+                wait until not closed_loop_out for 6 ms;
+
             elsif run("samples_while_stopped") then
                 -- not armed, no DHB: the timer's samples, half a period apart
                 wait until sample for 100 us;

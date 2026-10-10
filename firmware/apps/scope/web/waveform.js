@@ -16,7 +16,8 @@
 // page's control run does: the run ends with the waveform, or on Stop when it repeats until
 // stopped, and the output brought down to 0 V; the DHB runs on as long as the output does.
 // Run needs the gate driver supplies and the DHB's voltage control on (the scope page's
-// settings).
+// settings). The page sends a heartbeat every second: the board brings a run down when no page
+// or script has said anything for a few seconds.
 'use strict';
 
 const PERIOD_MS = 0.025;              // the output bridge's switching period
@@ -43,6 +44,7 @@ let dcLink = 94.0;
 let waveformSupport = null;      // hello.waveform: {capacity}
 let boardWaveform = [0, 0];      // status.waveform: the points loaded, the player's state
 let loadedText = null;           // the points as last loaded, to tell a changed waveform
+let boardOutput = 0;             // status.output[0]: bit3 the last run stopped by the watchdog
 
 // the view: the time range shown, ms; null for the whole waveform
 let view = null;
@@ -560,6 +562,7 @@ function showBoard() {
     const changedSince = loadedText !== null && loadedText !== JSON.stringify(points) ? ' (changed since)' : '';
     parts.push(`waveform player: ${waveformSupport.capacity} points; ` +
       `${boardWaveform[0] ? `${boardWaveform[0]} loaded${changedSince}` : 'none loaded'}, ${playing}`);
+    if (boardOutput & 8) parts.push('the last run was stopped by the watchdog: no page was there');
     const problem = ready();
     if (problem) parts.push(`Run: ${problem}`);
   } else {
@@ -653,6 +656,7 @@ function connect() {
       config = message.config;
       waveformSupport = message.waveform || null;
       $('status').textContent = 'connected';
+      boardOutput = 0;
       $('status').classList.remove('error');
       computePreview();
       showSummary();
@@ -660,9 +664,10 @@ function connect() {
       draw();
     } else if (message.type === 'status') {
       if (message.waveform) {
-        const before = JSON.stringify(boardWaveform);
+        const before = JSON.stringify([boardWaveform, boardOutput]);
         boardWaveform = message.waveform;
-        if (JSON.stringify(boardWaveform) !== before) showBoard();
+        boardOutput = message.output ? message.output[0] : 0;
+        if (JSON.stringify([boardWaveform, boardOutput]) !== before) showBoard();
       }
       if (message.dc_links && message.dc_links[1] > 5) {
         const changedLink = Math.abs(message.dc_links[1] - dcLink) > 0.5;
@@ -731,6 +736,9 @@ try {
   if (Array.isArray(saved)) points = saved.filter(p => isFinite(p.v) && p.n >= 1).map(p => ({v: +p.v, n: Math.round(p.n)}));
 } catch (e) { /* none kept */ }
 if (!points.length) points = [{v: -20, n: 200}, {v: 20, n: 200}, {v: 0, n: 200}];
+
+// the board's watchdog: a run goes on only while a page is there; this one says so every second
+setInterval(() => send({type: 'heartbeat'}), 1000);
 
 window.addEventListener('resize', resize);
 computePreview();

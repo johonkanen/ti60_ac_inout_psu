@@ -29,7 +29,7 @@ library ieee;
 --
 -- register map, offsets from g_base_address; duties fixed point with 20 fractional bits
 --   0  W  bit0 arm: start when allowed, bit1 stop
---      R  bit0 running, bit1 stepped, bit2 armed
+--      R  bit0 running, bit1 stepped, bit2 armed, bit3 the last run stopped by the watchdog
 --   1  RW duty before the step, 0 .. 1 (0.5: 0 V)
 --   2  RW duty after the step (0.5)
 --   3  RW carrier periods before the step (2000: 50 ms)
@@ -48,6 +48,12 @@ library ieee;
 --   9  RW output voltage after the step, V (0.0)
 --   10 RW closed loop: the square wave's amplitude, V (20.0)
 --   11 RW closed loop: its half cycle in periods, 1 .. 40000 (200: 10 ms a cycle)
+--   12 W  the watchdog's kick: any write
+--   13 RW the watchdog's time, ms (1000); 0: none
+-- The watchdog: armed or running, a run is stopped as on stop (a closed loop brought down
+-- first) when no kick came for the watchdog's time; the software kicks it while someone is
+-- watching, so a run does not go on with nobody there (a page closed, the network or the
+-- software gone).
 -- In closed loop the probe's lane 1 is the square wave high. A closed loop run ends with the
 -- output brought down: its periods run, or on stop, the reference goes to 0 V for
 -- ramp_down_periods (5 ms: the control's prefilter takes it there smoothly), then the bridge
@@ -98,6 +104,7 @@ architecture rtl of output_bridge_test is
     constant period      : natural := output_period_clocks;   -- 40 kHz at 125 MHz, sdm_adc's window
     constant max_periods : natural := 40000;   -- 1 s: the step's time, the square wave's half
     constant max_total   : natural := 2**30;   -- the run's periods: 7.5 hours
+    constant periods_a_ms : natural := 125000 / period;   -- 40: 125 MHz clocks
 
     function to_slv(n : natural) return std_logic_vector is
     begin
@@ -125,6 +132,11 @@ architecture rtl of output_bridge_test is
     signal timer_count  : natural range 0 to period - 1 := 0;
     signal amplitude_r  : std_logic_vector(31 downto 0) := std_logic_vector(to_fixed(20.0));
     signal half_r       : std_logic_vector(31 downto 0) := to_slv(200);
+    signal watchdog_r   : std_logic_vector(31 downto 0) := to_slv(1000);
+    -- the periods since the last kick, armed or running
+    signal watchdog_count   : natural range 0 to 2**26 := 0;
+    signal watchdog_expired : boolean := false;
+    signal watchdog_stopped : boolean := false;
     signal closed_loop  : boolean := false;
     signal square_count : natural range 0 to max_periods := 0;
     signal half_cycle   : natural range 1 to max_periods := 200;
@@ -203,6 +215,7 @@ begin
 
     process(clock)
         variable next_reference : fixed_number;
+        variable stop : boolean;
     begin
         if rising_edge(clock) then
             vm_request <= false;
@@ -210,7 +223,8 @@ begin
             waveform_start <= false;
             waveform_step  <= false;
             connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 0,
-                (31 downto 3 => '0') & bit_of(armed) & bit_of(stepped) & bit_of(running));
+                (31 downto 4 => '0') & bit_of(watchdog_stopped) & bit_of(armed) & bit_of(stepped) &
+                bit_of(running));
             connect_data_to_address(bus_in, bus_out, g_base_address + 1, before_r);
             connect_data_to_address(bus_in, bus_out, g_base_address + 2, after_r);
             connect_data_to_address(bus_in, bus_out, g_base_address + 3, step_r);
@@ -222,14 +236,29 @@ begin
             connect_data_to_address(bus_in, bus_out, g_base_address + 9, vafter_r);
             connect_data_to_address(bus_in, bus_out, g_base_address + 10, amplitude_r);
             connect_data_to_address(bus_in, bus_out, g_base_address + 11, half_r);
+            connect_data_to_address(bus_in, bus_out, g_base_address + 13, watchdog_r);
 
-            if trip or (running and not allowed)
-               or (write_is_requested_to_address(bus_in, g_base_address) and get_slv_data(bus_in)(1) = '1'
-                   and not (running and closed_loop)) then
+            -- the watchdog, counting the timer's periods since the last kick while armed or
+            -- running
+            if write_is_requested_to_address(bus_in, g_base_address + 12) or not (armed or running) then
+                watchdog_count <= 0;
+            elsif timer_count = period - 1 and watchdog_count < 2**26 then
+                watchdog_count <= watchdog_count + 1;
+            end if;
+            watchdog_expired <= unsigned(watchdog_r) /= 0 and (armed or running)
+                and watchdog_count >= to_integer(unsigned(watchdog_r(15 downto 0))) * periods_a_ms;
+
+            -- (the watchdog's once: not again while the output is brought down)
+            stop := (write_is_requested_to_address(bus_in, g_base_address) and get_slv_data(bus_in)(1) = '1')
+                    or (watchdog_expired and not ramping_down);
+            if watchdog_expired then
+                watchdog_stopped <= true;
+            end if;
+            if trip or (running and not allowed) or (stop and not (running and closed_loop)) then
                 running <= false;
                 armed   <= false;
                 ramping_down <= false;
-            elsif write_is_requested_to_address(bus_in, g_base_address) and get_slv_data(bus_in)(1) = '1' then
+            elsif stop then
                 -- stop in closed loop: the output brought down first
                 armed        <= false;
                 ramping_down <= true;
@@ -238,6 +267,7 @@ begin
             elsif write_is_requested_to_address(bus_in, g_base_address) and get_slv_data(bus_in)(0) = '1'
                   and not running then
                 armed <= true;
+                watchdog_stopped <= false;
             elsif armed and allowed and timer_count = period - 1 then
                 -- the start on the sample timer's period: the carrier always in the same place
                 -- against the sigma-delta modulators' bits (the timer and their clock run from

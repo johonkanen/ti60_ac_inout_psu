@@ -220,6 +220,9 @@ void capture_output_test(double before, double after, uint32_t step_periods, uin
  * the secondary DC link (voltage_modulator.vhd) */
 void capture_output_voltage_test(double before, double after, uint32_t step_periods, uint32_t periods);
 void capture_output_stop(void);
+/* the output's watchdog: a run is stopped (brought down) when this is not called for 1 s */
+void capture_output_kick(void);
+/* bit0 running, bit1 stepped, bit2 armed, bit3 the last run stopped by the watchdog */
 uint32_t capture_output_status(void);
 uint32_t capture_output_periods(void);
 
