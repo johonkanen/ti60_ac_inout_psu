@@ -46,7 +46,8 @@ entity input_bridge_test is
         leg2       : out dhb_leg_gates;
         -- a scope probe: lane 0 running, 1 the switch on, 2 the last burst stopped at the
         -- overvoltage
-        probe      : out scope_sample
+        probe      : out scope_sample;
+        inhibit    : in boolean := false   -- the boost control running: no test meanwhile
     );
 end entity input_bridge_test;
 
@@ -115,7 +116,7 @@ begin
                 gate_on <= false;
             end if;
 
-            if trip or (write_is_requested_to_address(bus_in, g_base_address) and get_slv_data(bus_in)(1) = '1') then
+            if trip or inhibit or (write_is_requested_to_address(bus_in, g_base_address) and get_slv_data(bus_in)(1) = '1') then
                 running <= false;
                 gate_on <= false;
                 if trip and running then
@@ -158,7 +159,7 @@ begin
             -- the one switch, the others off
             leg1 <= dhb_leg_gates_off;
             leg2 <= dhb_leg_gates_off;
-            if gate_on and running and not trip then
+            if gate_on and running and not trip and not inhibit then
                 case switch is
                     when 0 => leg1.low  <= '1';
                     when 1 => leg2.low  <= '1';

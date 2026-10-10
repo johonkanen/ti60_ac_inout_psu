@@ -331,6 +331,10 @@ void capture_scaler_init(void)
 		{SCALER_SDM_IAC_OUT, -331.6, -256.0},           /* sdm iac_out, 0.5 mOhm, + into the filter */
 		{SCALER_SDM_I_DAB, -197.4, -256.0},             /* sdm i_dab */
 		{SCALER_IAC_OUT_SAMPLED, -331.6, -256.0},       /* iac_out's period mean, sampled */
+		{SCALER_IAC_IN_MEAN, -160.4, 256.0},            /* iac_in's period mean: + from the input's
+		                                                 * + terminal (leg 2) into the bridge */
+		{SCALER_PRI_VFILT_IN, 8153.273, -16.327273},    /* pri 3 vfilt_in */
+		{SCALER_PRI_VAC_IN, 8137.909, 16.763636},       /* pri 0 vac_in: + on leg 2 */
 	};
 
 	for (size_t i = 0; i < ARRAY_SIZE(calibrations); i++) {
@@ -646,6 +650,42 @@ void capture_input_state(uint32_t state[4])
 	state[1] = sys_read32(INPUT_REGISTER(5));
 	state[2] = sys_read32(INPUT_REGISTER(6));
 	state[3] = sys_read32(INPUT_REGISTER(7));
+}
+
+/* input_boost_control.vhd's registers at 1260 (scope.h) */
+#define BOOST_REGISTER(r) (REGISTERS + 4 * 1260 + 4 * (r))
+
+void capture_boost_set(int reg, double value)
+{
+	sys_write32(to_fixed(value), BOOST_REGISTER(reg));
+}
+
+void capture_boost_start(void)
+{
+	sys_write32(BIT(0), BOOST_REGISTER(0));
+}
+
+void capture_boost_stop(void)
+{
+	sys_write32(BIT(1), BOOST_REGISTER(0));
+}
+
+void capture_boost_kick(void)
+{
+	sys_write32(1, BOOST_REGISTER(9));
+}
+
+void capture_boost_state(uint32_t state[2])
+{
+	state[0] = sys_read32(BOOST_REGISTER(0)) & 31;
+	state[1] = sys_read32(BOOST_REGISTER(15));
+}
+
+double capture_boost_value(int which)
+{
+	static const int registers[] = {11, 12, 13, 14, 17, 18, 1};
+
+	return (int32_t)sys_read32(BOOST_REGISTER(registers[which])) / 1048576.0;
 }
 
 /* register 12: the output's watchdog kicked (13 its time, 1 s after a reset) */

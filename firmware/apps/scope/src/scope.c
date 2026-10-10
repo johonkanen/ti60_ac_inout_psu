@@ -534,8 +534,10 @@ static void broadcast_status(void)
 
 	last_status = now;
 	uint32_t input_state[4];
+	uint32_t boost_state[2];
 
 	capture_input_state(input_state);
+	capture_boost_state(boost_state);
 
 	k_mutex_lock(&scope_lock, K_FOREVER);
 	if (now - adc.at >= 500) {
@@ -562,7 +564,8 @@ static void broadcast_status(void)
 		 "\"dhb_control\":[%.5f,%d,%u],\"dhb_trip\":[%u,%.3f,%.2f],\"dhb_filtered\":[%.2f,%.2f],"
 		 "\"output\":[%u,%u],\"observer\":[%.3f,%.2f,%.2f,%.3f,%u],"
 		 "\"control\":[%.3f,%.2f,%.2f,%.2f,%u,%u],\"waveform\":[%u,%u],"
-		 "\"input\":[%u,%u,%.3f,%.3f]}",
+		 "\"input\":[%u,%u,%.3f,%.3f],"
+		 "\"boost\":[%u,%.3f,%.4f,%.3f,%.3f,%.3f,%.3f,%.2f,%u]}",
 		 status.state, status.captures, status.forced ? "true" : "false",
 		 status.running ? "true" : "false", stream_lost(), adc.rates[0], adc.rates[1],
 		 adc.sdm_rate, capture_gate_power_on(), copy_us, send_us, capture_dhb_status(),
@@ -575,7 +578,10 @@ static void broadcast_status(void)
 		 capture_control(0), capture_control(1), capture_control(2), capture_control(3),
 		 capture_control_flags(), capture_control_steps(), waveform_loaded,
 		 capture_waveform_status(), input_state[0], input_state[1],
-		 (int32_t)input_state[2] / 1048576.0, (int32_t)input_state[3] / 1048576.0);
+		 (int32_t)input_state[2] / 1048576.0, (int32_t)input_state[3] / 1048576.0,
+		 boost_state[0], capture_boost_value(0), capture_boost_value(1), capture_boost_value(2),
+		 capture_boost_value(3), capture_boost_value(4), capture_boost_value(5),
+		 capture_boost_value(6), boost_state[1]);
 	k_mutex_unlock(&scope_lock);
 
 	for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -667,6 +673,7 @@ static void watchdog_kick(struct k_timer *timer)
 	ARG_UNUSED(timer);
 	if (k_uptime_get() - last_client_message < CLIENT_SILENCE_MS) {
 		capture_output_kick();
+		capture_boost_kick();
 	}
 }
 
@@ -734,6 +741,34 @@ static void handle_command(const char *message)
 				   (uint32_t)CLAMP(periods, 1.0, 4000.0), CLAMP(limit, 0.0, 450.0));
 	} else if (json_string_is(message, "type", "input_stop")) {
 		capture_input_stop();
+	} else if (json_string_is(message, "type", "boost_start") ||
+		   json_string_is(message, "type", "boost_set")) {
+		/* the settings given (each limited); boost_start then starts it (when stopped),
+		 * boost_set only changes them: a run stopped meanwhile stays stopped */
+		static const struct {
+			const char *name;
+			int reg;
+			double low, high;
+		} settings[] = {
+			{"v_ref", 1, 0.0, 400.0}, {"kp_v", 2, 0.0, 10.0}, {"ki_v", 3, 0.0, 1.0},
+			{"kp_i", 4, 0.0, 1.0}, {"ki_i", 5, 0.0, 1.0}, {"i_max", 6, 0.0, 5.0},
+			{"d_max", 7, 0.0, 0.5}, {"limit", 8, 0.0, 450.0}, {"ramp", 16, 0.0, 10.0},
+		};
+
+		for (size_t i = 0; i < ARRAY_SIZE(settings); i++) {
+			double value;
+
+			if (json_number(message, settings[i].name, &value)) {
+				capture_boost_set(settings[i].reg,
+						  CLAMP(value, settings[i].low, settings[i].high));
+			}
+		}
+		if (json_string_is(message, "type", "boost_start")) {
+			LOG_WRN("input boost: start, the link to %.1f V", capture_boost_value(6));
+			capture_boost_start();
+		}
+	} else if (json_string_is(message, "type", "boost_stop")) {
+		capture_boost_stop();
 	} else if (json_string_is(message, "type", "waveform_stop")) {
 		capture_output_stop();
 	} else if (json_string_is(message, "type", "output_test")) {

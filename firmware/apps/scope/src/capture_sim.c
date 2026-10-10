@@ -342,6 +342,35 @@ void capture_input_state(uint32_t state[4])
 	state[0] = state[1] = state[2] = state[3] = 0;
 }
 
+void capture_boost_set(int reg, double value)
+{
+	ARG_UNUSED(reg);
+	ARG_UNUSED(value);
+}
+
+void capture_boost_start(void)
+{
+}
+
+void capture_boost_stop(void)
+{
+}
+
+void capture_boost_kick(void)
+{
+}
+
+void capture_boost_state(uint32_t state[2])
+{
+	state[0] = state[1] = 0;
+}
+
+double capture_boost_value(int which)
+{
+	ARG_UNUSED(which);
+	return 0.0;
+}
+
 uint32_t capture_waveform_capacity(void)
 {
 	return 0; /* no waveform player without the board */

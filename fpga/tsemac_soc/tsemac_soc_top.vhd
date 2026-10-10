@@ -194,6 +194,12 @@ architecture rtl of tsemac_soc_top is
     signal bus_from_input       : fpga_interconnect_record := init_fpga_interconnect;
     signal input_leg1, input_leg2 : dhb_leg_gates;
     signal input_probe          : scope_sample;
+    signal test_leg1, test_leg2 : dhb_leg_gates;
+    signal test_probe           : scope_sample;
+    signal bus_from_boost       : fpga_interconnect_record := init_fpga_interconnect;
+    signal boost_leg1, boost_leg2 : dhb_leg_gates;
+    signal boost_probe, boost_i_ref_probe, boost_duty_probe : scope_sample;
+    signal boost_running, test_running : boolean;
     signal primary_dc_voltage   : fixed_number := fixed_zero;
     signal waveform_ref         : fixed_number;
     signal waveform_finished, waveform_start, waveform_step : boolean;
@@ -326,7 +332,7 @@ begin
     bus_from_slaves <= bus_from_scope and bus_from_adc and bus_from_update and bus_from_gate_power
                        and bus_from_dhb and bus_from_scaler and bus_from_dhb_control
                        and bus_from_protection and bus_from_output and bus_from_output_control
-                       and bus_from_waveform and bus_from_input;
+                       and bus_from_waveform and bus_from_input and bus_from_boost;
 ------------------------------------------------------------------------
     -- the golden or application image (image_role_pkg, written by build.sh), and switching
     -- between them, registers at 800..
@@ -543,10 +549,39 @@ begin
         ,bus_out    => bus_from_input
         ,trip       => dhb_trip
         ,dc_voltage => primary_dc_voltage
-        ,leg1       => input_leg1
-        ,leg2       => input_leg2
-        ,probe      => input_probe
+        ,leg1       => test_leg1
+        ,leg2       => test_leg2
+        ,probe      => test_probe
+        ,inhibit    => boost_running
     );
+
+    -- the input bridge as a boost converter from a DC source (input_boost_control.vhd, registers
+    -- at 1260..): only leg 2's low side switching, the link's voltage held by a slow voltage PI on
+    -- the bridge's output current (iac_in * vac_in / vdc_in). It and the polarity test inhibit
+    -- each other, so at most one drives the bridge.
+    u_input_boost : entity work.input_boost_control
+    generic map(g_base_address => 1260)
+    port map(
+        clock           => io_tseClk
+        ,bus_in         => bus_to_slaves
+        ,bus_out        => bus_from_boost
+        ,scaled         => scaled
+        ,scaled_ready   => scaled_ready
+        ,scaled_channel => scaled_channel
+        ,trip           => dhb_trip
+        ,inhibit        => test_running
+        ,running_out    => boost_running
+        ,leg1           => boost_leg1
+        ,leg2           => boost_leg2
+        ,i_ref_probe    => boost_i_ref_probe
+        ,duty_probe     => boost_duty_probe
+        ,probe          => boost_probe
+    );
+    test_running <= test_probe(0) = '1';
+    input_leg1  <= (high => test_leg1.high or boost_leg1.high, low => test_leg1.low or boost_leg1.low);
+    input_leg2  <= (high => test_leg2.high or boost_leg2.high, low => test_leg2.low or boost_leg2.low);
+    -- the scope's "input test": lanes 0..2 the polarity test's, 4 the boost running, 5 its switch on
+    input_probe <= test_probe or boost_probe;
 
     -- the output voltage's arbitrary waveform (registers 1200..): a table of 512 points, the
     -- closed loop's reference in the output test's waveform mode
