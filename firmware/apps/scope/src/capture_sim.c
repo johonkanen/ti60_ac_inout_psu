@@ -362,6 +362,19 @@ uint32_t capture_fpga_version(void)
 	return 0;
 }
 
+void capture_touch_button(uint32_t x_from, uint32_t x_to, uint32_t y_from, uint32_t y_to)
+{
+	ARG_UNUSED(x_from);
+	ARG_UNUSED(x_to);
+	ARG_UNUSED(y_from);
+	ARG_UNUSED(y_to);
+}
+
+uint32_t capture_touch_presses(void)
+{
+	return 0;
+}
+
 void capture_touch_state(uint32_t state[4])
 {
 	state[0] = state[1] = state[2] = state[3] = 0;

@@ -50,7 +50,8 @@ item when it is done; the commit that does it says so.
 - Plan: drive the DHB and the output bridge from one sawtooth carrier, both switching
   symmetrically, so the DC links and other ADC readings can be sampled where neither bridge
   switches. vfilt_out and vdc_out carry +-20-30 V of switching noise now.
-- The FPGA is about 90 % full (XLRs); make room before adding much more logic.
+- The FPGA is about 94 % full (XLRs, with the face panel's driver and stop button); make room
+  before adding much more logic.
 
 ## Waveform generator
 
@@ -66,9 +67,10 @@ item when it is done; the commit that does it says so.
   and the firmware's and the FPGA image's commits ("+": built from a changed tree).
   `touch_reader.vhd` (registers 1320) polls the touch controller (no pen interrupt connected;
   its data out on GPIOR_22). The firmware's panel.c calibrates it to screen pixels
-  (`{"type": "touch_calibrate"}`: four "+" targets, an affine fit kept in flash). Next: a stop
-  button that works without the network (in the FPGA, straight from the touch), then start
-  buttons and a system state indicator.
+  (`{"type": "touch_calibrate"}`: four "+" targets, an affine fit kept in flash).
+- The STOP button works in the FPGA alone (touch_reader's area, lcd_display's red rectangle):
+  the output brought down and stopped, the DHB after it, the input boost and polarity test off.
+  Tested on the board in closed loop. Next: start buttons and a system state indicator.
 - Efinity numbers the bits of an unconstrained record field (the memory library's RAM output)
   the other way from the simulator: indexing a bit of it directly mirrored each character on
   the board while the testbench passed. Copy such a vector whole into a constrained one before

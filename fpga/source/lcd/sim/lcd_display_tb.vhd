@@ -12,7 +12,8 @@ context vunit_lib.vunit_context;
 -- chip select low, data/command telling commands from their parameters and the pixels. Checked:
 -- the reset pulse, the set up (18-bit colour, the memory access control, sleep out, display on),
 -- the draw's window (0..479 x 0..319) and every pixel of the screen against the font and the text
--- as it should be: the first text, then text written through the registers; the colours; a draw
+-- as it should be (the STOP button in its own colours): the first text, then text written through
+-- the registers; the colours; a draw
 -- asked for during a draw following it; chip select high when idle.
 entity lcd_display_tb is
   generic (runner_cfg : string);
@@ -41,11 +42,19 @@ architecture vunit_simulation of lcd_display_tb is
     begin
         for i in title'range loop t(i - 1) := title(i); end loop;
         for i in ip'range loop t(2 * cols + i - 1) := ip(i); end loop;
+        t(8 * cols + 18 to 8 * cols + 21) := "STOP";
         return t;
     end function;
     signal expected_text : text_array := blank_text;
     signal foreground : std_logic_vector(23 downto 0) := x"FFFFFF";
     signal background : std_logic_vector(23 downto 0) := x"000000";
+    -- the STOP button's area and colours
+    constant button_x0 : natural := 330;
+    constant button_x1 : natural := 469;
+    constant button_y0 : natural := 236;
+    constant button_y1 : natural := 309;
+    constant button_fg : std_logic_vector(23 downto 0) := x"FFFFFF";
+    constant button_bg : std_logic_vector(23 downto 0) := x"C00000";
 
     -- the model's findings
     signal bytes_seen   : natural := 0;
@@ -137,7 +146,13 @@ begin
                                     ch := (y / (16 * scale)) * cols + x / (10 * scale);
                                     code := character'pos(expected_text(ch));
                                     glyph_row := to_integer(unsigned(lcd_font((code - 32) * 16 + (y / scale) mod 16)));
-                                    if (glyph_row / 2**(9 - (x / scale) mod 10)) mod 2 = 1 then
+                                    if x >= button_x0 and x <= button_x1 and y >= button_y0 and y <= button_y1 then
+                                        if (glyph_row / 2**(9 - (x / scale) mod 10)) mod 2 = 1 then
+                                            want := button_fg;
+                                        else
+                                            want := button_bg;
+                                        end if;
+                                    elsif (glyph_row / 2**(9 - (x / scale) mod 10)) mod 2 = 1 then
                                         want := foreground;
                                     else
                                         want := background;

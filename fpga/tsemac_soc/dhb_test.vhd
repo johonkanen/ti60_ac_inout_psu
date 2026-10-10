@@ -73,7 +73,10 @@ entity dhb_test is
         secondary_gates : out dhb_leg_gates;
         -- synchronous to clock: while high the bridge runs on past its run time (the output
         -- bridge armed or running), stopping at the first period after it falls
-        hold            : in boolean := false
+        hold            : in boolean := false;
+        -- synchronous to clock: its rise stops the bridge, as the register's stop (the face
+        -- panel's stop button)
+        stop_in         : in boolean := false
     );
 end entity dhb_test;
 
@@ -107,6 +110,7 @@ architecture rtl of dhb_test is
     signal primary_sum, secondary_sum : unsigned(16 + average_bits - 1 downto 0) := (others => '0');
     signal start_toggle   : std_logic := '0';
     signal stop_toggle    : std_logic := '0';
+    signal stop_in_d      : boolean := false;
     signal status_sync    : std_logic_vector(7 downto 0) := (others => '0');   -- 2 x (mode, burst, charged)
     signal count_sync     : std_logic_vector(31 downto 0) := (others => '0');
     signal gates_sync     : std_logic_vector(9 downto 0) := (others => '0');   -- 2 x 5 lanes
@@ -213,7 +217,10 @@ begin
                 if get_slv_data(bus_in)(1) = '1' then
                     stop_toggle <= not stop_toggle;
                 end if;
+            elsif stop_in and not stop_in_d then
+                stop_toggle <= not stop_toggle;
             end if;
+            stop_in_d <= stop_in;
 
             -- back from dhb_clock: the mode and the burst flag, and the count, which changes
             -- once a period (thousands of clocks) and is only read

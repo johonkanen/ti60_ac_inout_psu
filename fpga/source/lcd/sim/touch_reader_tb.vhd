@@ -10,7 +10,8 @@ context vunit_lib.vunit_context;
 -- touch_reader against a model of the XPT2046: its command byte taken at DCLK's rises, the
 -- channel's 12 bits out after the falls of clocks 9..20 (after the busy clock), zeros otherwise.
 -- Checked: a touch (Z1 over the threshold) read as X, Y, Z1, Z2; no touch keeping the last X, Y;
--- the commands' channels; chip select high between polls.
+-- the commands' channels; chip select high between polls; the stop button: a press inside its
+-- area one stop pulse, after two polls, none for a touch outside or a press held.
 entity touch_reader_tb is
   generic (runner_cfg : string);
 end;
@@ -28,6 +29,8 @@ architecture vunit_simulation of touch_reader_tb is
     -- the panel: each channel's value
     signal x_value, y_value, z1_value, z2_value : natural := 0;
     signal bad_commands : natural := 0;
+    signal stop : boolean;
+    signal stops : natural := 0;
 
 begin
 
@@ -35,7 +38,14 @@ begin
 
     dut : entity work.touch_reader
     generic map(g_base_address => base, g_half_period => 3, g_poll_clocks => 2000)
-    port map(clock, bus_in, bus_out, t_cs, t_clk, t_din, t_dout);
+    port map(clock, bus_in, bus_out, t_cs, t_clk, t_din, t_dout, stop);
+
+    count_stops : process(clock)
+    begin
+        if rising_edge(clock) and stop then
+            stops <= stops + 1;
+        end if;
+    end process;
 
     capture_bus_reads : process(clock)
     begin
@@ -108,6 +118,26 @@ begin
             end loop;
         end procedure;
 
+        procedure bus_write(address : natural; data : natural) is
+        begin
+            wait until rising_edge(clock);
+            write_data_to_address(bus_in, address, std_logic_vector(to_unsigned(data, 32)));
+            wait until rising_edge(clock);
+            init_bus(bus_in);
+        end procedure;
+
+        procedure one_poll is
+            variable polls : integer;
+            variable start : integer;
+        begin
+            bus_read(base + 5, start);
+            loop
+                wait for 2 us;
+                bus_read(base + 5, polls);
+                exit when polls >= start + 1;
+            end loop;
+        end procedure;
+
         variable v : integer;
     begin
         test_runner_setup(runner, runner_cfg);
@@ -138,6 +168,33 @@ begin
                 wait until t_cs = '1';
                 wait for 1 us;
                 check(t_cs = '1', "chip select high between polls");
+            elsif run("the_stop_button") then
+                bus_write(base + 7, 1000); bus_write(base + 8, 2000);
+                bus_write(base + 9, 500);  bus_write(base + 10, 1500);
+                -- a touch outside: no stop
+                x_value <= 2500; y_value <= 1000; z1_value <= 500;
+                two_polls; two_polls;
+                check_equal(stops, 0, "outside: none");
+                -- lifted, then pressed inside: a stop after the second poll inside, one only
+                z1_value <= 0;
+                two_polls;
+                x_value <= 1500; y_value <= 1000; z1_value <= 500;
+                one_poll;
+                check_equal(stops, 0, "one poll inside: not yet");
+                two_polls; two_polls;
+                check_equal(stops, 1, "a press: one stop");
+                bus_read(base + 11, v); check_equal(v, 1, "a press counted");
+                -- light, under the threshold, inside: nothing; pressed again: a second stop
+                z1_value <= 50;
+                two_polls;
+                z1_value <= 500;
+                two_polls; two_polls;
+                check_equal(stops, 2, "pressed again: a second stop");
+                -- the edges count as inside
+                z1_value <= 0; two_polls;
+                x_value <= 2000; y_value <= 500; z1_value <= 500;
+                two_polls; two_polls;
+                check_equal(stops, 3, "the area's corner");
             end if;
         end loop;
 

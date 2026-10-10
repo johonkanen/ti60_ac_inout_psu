@@ -32,6 +32,12 @@ library ieee;
 --   5  RW the memory access control (command 0x36) at set up (0x28: landscape)
 --   6  R  screens drawn
 --   7  R  the text's size: bits 7..0 cols, 15..8 rows
+--   8  RW a button's area, pixels: X from (330)   9 RW to (469)
+--   10 RW Y from (236)                            11 RW to (309)
+--   12 RW the button's text colour (white)       13 RW its background (red, 0xC00000)
+-- The button: a rectangle in its own colours over the text, the text in it (the STOP button:
+-- "STOP" in row 8, columns 18..21) drawn in the button's colours. touch_reader's stop button is
+-- the same area.
 entity lcd_display is
     generic(
         g_base_address : natural := 1300;
@@ -129,6 +135,7 @@ architecture rtl of lcd_display is
     function initial_text return ram_array is
         constant title : string := "ti60 AC PSU";
         constant ip    : string := "IP  ...";
+        constant stop  : string := "STOP";
         variable text  : ram_array(0 to text_size - 1)(7 downto 0) := (others => x"20");
     begin
         for i in title'range loop
@@ -136,6 +143,9 @@ architecture rtl of lcd_display is
         end loop;
         for i in ip'range loop
             text(2 * cols + i - 1) := std_logic_vector(to_unsigned(character'pos(ip(i)), 8));
+        end loop;
+        for i in stop'range loop
+            text(8 * cols + 17 + i) := std_logic_vector(to_unsigned(character'pos(stop(i)), 8));
         end loop;
         return text;
     end function;
@@ -154,6 +164,12 @@ architecture rtl of lcd_display is
     signal backlight_r  : std_logic_vector(31 downto 0) := x"00000001";
     signal madctl_r     : std_logic_vector(31 downto 0) := x"00000028";
     signal screens      : unsigned(31 downto 0) := (others => '0');
+    signal button_x0_r  : std_logic_vector(31 downto 0) := to_slv(330);
+    signal button_x1_r  : std_logic_vector(31 downto 0) := to_slv(469);
+    signal button_y0_r  : std_logic_vector(31 downto 0) := to_slv(236);
+    signal button_y1_r  : std_logic_vector(31 downto 0) := to_slv(309);
+    signal button_fg_r  : std_logic_vector(31 downto 0) := x"00FFFFFF";
+    signal button_bg_r  : std_logic_vector(31 downto 0) := x"00C00000";
 
     -- the byte sender
     signal tx_busy   : boolean := false;
@@ -212,6 +228,7 @@ begin
         variable code       : natural range 0 to 255;
         variable s          : step_record;
         variable glyph      : std_logic_vector(lcd_font_width - 1 downto 0);
+        variable in_button  : boolean;
     begin
         if rising_edge(clock) then
             init_bus(bus_out);
@@ -223,6 +240,12 @@ begin
             connect_data_to_address(bus_in, bus_out, g_base_address + 5, madctl_r);
             connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 6, std_logic_vector(screens));
             connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 7, to_slv(rows * 256 + cols));
+            connect_data_to_address(bus_in, bus_out, g_base_address + 8, button_x0_r);
+            connect_data_to_address(bus_in, bus_out, g_base_address + 9, button_x1_r);
+            connect_data_to_address(bus_in, bus_out, g_base_address + 10, button_y0_r);
+            connect_data_to_address(bus_in, bus_out, g_base_address + 11, button_y1_r);
+            connect_data_to_address(bus_in, bus_out, g_base_address + 12, button_fg_r);
+            connect_data_to_address(bus_in, bus_out, g_base_address + 13, button_bg_r);
 
             init_ram(text_a_in);
             init_ram(text_b_in);
@@ -359,8 +382,18 @@ begin
                         -- output (a record's unconstrained field) directly, Efinity numbered
                         -- its bits the other way and mirrored each character
                         glyph := get_ram_data(font_b_out);
+                        in_button := x_count >= to_integer(unsigned(button_x0_r(9 downto 0)))
+                            and x_count <= to_integer(unsigned(button_x1_r(9 downto 0)))
+                            and y_count >= to_integer(unsigned(button_y0_r(9 downto 0)))
+                            and y_count <= to_integer(unsigned(button_y1_r(9 downto 0)));
                         if glyph(lcd_font_width - 1 - fx) = '1' and row < rows and col < cols then
-                            colour <= foreground_r(23 downto 0);
+                            if in_button then
+                                colour <= button_fg_r(23 downto 0);
+                            else
+                                colour <= foreground_r(23 downto 0);
+                            end if;
+                        elsif in_button then
+                            colour <= button_bg_r(23 downto 0);
                         else
                             colour <= background_r(23 downto 0);
                         end if;

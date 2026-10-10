@@ -208,6 +208,10 @@ architecture rtl of tsemac_soc_top is
     signal bus_from_lcd         : fpga_interconnect_record := init_fpga_interconnect;
     signal bus_from_touch       : fpga_interconnect_record := init_fpga_interconnect;
     signal bus_from_version     : fpga_interconnect_record := init_fpga_interconnect;
+    constant panel_hold_clocks  : natural := 12500000;     -- 100 ms
+    signal panel_stop, panel_stopping, panel_stop_dhb : boolean := false;
+    signal panel_count          : natural range 0 to panel_hold_clocks := 0;
+    signal boost_inhibit, test_inhibit : boolean;
     signal primary_dc_voltage   : fixed_number := fixed_zero;
     signal waveform_ref         : fixed_number;
     signal waveform_finished, waveform_start, waveform_step : boolean;
@@ -503,6 +507,7 @@ begin
         ,trip          => dhb_trip
         ,bridge_running => dhb_running
         ,hold          => output_active   -- on while the output bridge runs
+        ,stop_in       => panel_stop_dhb
         ,primary_voltage   => pri_positions(1)   -- vdc_in
         ,secondary_voltage => sec_positions(0)   -- vdc_out, the same scaling
         ,dhb_clock     => ram_clk      -- 200 MHz: 150 kHz, 100 ns dead time
@@ -536,6 +541,7 @@ begin
         ,waveform_start    => waveform_start
         ,waveform_step     => waveform_step
         ,probe   => output_probe
+        ,stop_in => panel_stop
     );
 
     -- the primary DC link's voltage, from the measurement scaler as it comes
@@ -561,7 +567,7 @@ begin
         ,leg1       => test_leg1
         ,leg2       => test_leg2
         ,probe      => test_probe
-        ,inhibit    => boost_running
+        ,inhibit    => test_inhibit
     );
 
     -- the input bridge as a boost converter from a DC source (input_boost_control.vhd, registers
@@ -578,7 +584,7 @@ begin
         ,scaled_ready   => scaled_ready
         ,scaled_channel => scaled_channel
         ,trip           => dhb_trip
-        ,inhibit        => test_running
+        ,inhibit        => boost_inhibit
         ,running_out    => boost_running
         ,leg1           => boost_leg1
         ,leg2           => boost_leg2
@@ -626,7 +632,31 @@ begin
         ,t_clk   => touch_clk
         ,t_din   => touch_din
         ,t_dout  => touch_dout
+        ,stop_out => panel_stop
     );
+
+    -- the face panel's stop button (touch_reader's stop_out, a clock's pulse), whatever the
+    -- software or the network do: the output bridge stopped as by its stop (a closed loop
+    -- brought down first), the DHB once the output has stopped (or after 50 ms at most), the
+    -- input boost and the polarity test held off for 100 ms
+    process(io_tseClk)
+    begin
+        if rising_edge(io_tseClk) then
+            if panel_stop then
+                panel_stopping <= true;
+                panel_count    <= 0;
+            elsif panel_stopping then
+                if panel_count < panel_hold_clocks then
+                    panel_count <= panel_count + 1;
+                else
+                    panel_stopping <= false;
+                end if;
+            end if;
+            panel_stop_dhb <= panel_stopping and (not output_active or panel_count >= panel_hold_clocks / 2);
+        end if;
+    end process;
+    boost_inhibit <= test_running or panel_stopping;
+    test_inhibit  <= boost_running or panel_stopping;
     input_leg1  <= (high => test_leg1.high or boost_leg1.high, low => test_leg1.low or boost_leg1.low);
     input_leg2  <= (high => test_leg2.high or boost_leg2.high, low => test_leg2.low or boost_leg2.low);
     -- the scope's "input test": lanes 0..2 the polarity test's, 4 the boost running, 5 its switch on

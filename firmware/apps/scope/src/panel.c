@@ -12,6 +12,11 @@
  * starts it: each target held for half a second, then released; the fit kept in the web client's
  * littlefs (a dot file the file list leaves out, so upload_web.sh keeps it) and read at start.
  * No touch for 30 s gives up and keeps the old calibration.
+ *
+ * The STOP button: lcd_display draws it (a red rectangle, its area in pixels below) and
+ * touch_reader stops the power stage when it is pressed, in the FPGA alone, so it works without
+ * this software or the network. Here only its area is given to touch_reader in raw readings,
+ * through the calibration (touch_reader's defaults are this board's), and a press is shown.
  */
 #include <errno.h>
 #include <math.h>
@@ -35,7 +40,16 @@ LOG_MODULE_REGISTER(panel, LOG_LEVEL_INF);
 #define TOUCH_ROW    4
 #define FIRMWARE_ROW 6
 #define FPGA_ROW     7
-#define LINES        4
+#define STOP_ROW     8
+#define MESSAGE_ROW  9
+#define LINES        6
+
+/* the STOP button's area, pixels, as lcd_display's defaults */
+#define BUTTON_X0 330
+#define BUTTON_X1 469
+#define BUTTON_Y0 236
+#define BUTTON_Y1 309
+#define STOP_SHOWN_MS 5000
 
 #define CALIBRATION_FILE "/web/.touch_calibration"
 
@@ -73,6 +87,8 @@ static struct {
 } cal;
 
 static char shown[LINES][LINE_MAX_COLS + 1];
+static uint32_t presses_seen;
+static int64_t stop_shown_until;
 
 static void panel_update(struct k_work *work);
 static K_WORK_DELAYABLE_DEFINE(panel_work, panel_update);
@@ -127,8 +143,36 @@ bool panel_touch_pixels(const uint32_t touch[4], int *x, int *y)
 	return true;
 }
 
+/* the STOP button's area in raw readings: its corners through the calibration's inverse, their
+ * bounding box (the screen's axes are the controller's swapped: a box either way) */
+static void set_button_area(void)
+{
+	const double *m = calibration.m;
+	double det = m[0] * m[4] - m[1] * m[3];
+	double low[2] = {4095, 4095}, high[2] = {0, 0};
+	const int corners[4][2] = {{BUTTON_X0, BUTTON_Y0}, {BUTTON_X1, BUTTON_Y0},
+				   {BUTTON_X1, BUTTON_Y1}, {BUTTON_X0, BUTTON_Y1}};
+
+	if (!calibration.valid || fabs(det) < 1e-12) {
+		return;     /* touch_reader's defaults */
+	}
+	for (int i = 0; i < 4; i++) {
+		double px = corners[i][0] - m[2], py = corners[i][1] - m[5];
+		double raw[2] = {(m[4] * px - m[1] * py) / det, (m[0] * py - m[3] * px) / det};
+
+		for (int k = 0; k < 2; k++) {
+			low[k] = MIN(low[k], raw[k]);
+			high[k] = MAX(high[k], raw[k]);
+		}
+	}
+	capture_touch_button((uint32_t)CLAMP(lround(low[0]), 0, 4095), (uint32_t)CLAMP(lround(high[0]), 0, 4095),
+			     (uint32_t)CLAMP(lround(low[1]), 0, 4095), (uint32_t)CLAMP(lround(high[1]), 0, 4095));
+	LOG_INF("stop button: raw x %.0f..%.0f, y %.0f..%.0f", low[0], high[0], low[1], high[1]);
+}
+
 static void show_normal(void)
 {
+	uint32_t presses = capture_touch_presses();
 	char address[NET_IPV4_ADDR_LEN] = "...";
 	char text[LINE_MAX_COLS + 1];
 	struct net_in_addr *ip = net_if_ipv4_get_global_addr(net_if_get_default(), NET_ADDR_PREFERRED);
@@ -157,6 +201,15 @@ static void show_normal(void)
 	changed |= normal_line(2, FIRMWARE_ROW, text);
 	snprintf(text, sizeof(text), "fpga %07x%s", fpga & 0x0fffffff, fpga & BIT(31) ? "+" : "");
 	changed |= normal_line(3, FPGA_ROW, text);
+
+	/* the button's label, in its columns 18..21; a press shown for a while below */
+	changed |= normal_line(4, STOP_ROW, "                  STOP");
+	if (presses != presses_seen) {
+		stop_shown_until = k_uptime_get() + STOP_SHOWN_MS;
+		LOG_WRN("stopped by the face panel's STOP button");
+		presses_seen = presses;
+	}
+	changed |= normal_line(5, MESSAGE_ROW, k_uptime_get() < stop_shown_until ? "stopped (panel)" : "");
 
 	if (changed) {
 		capture_lcd_draw();
@@ -376,6 +429,7 @@ static void calibration_tick(void)
 	memcpy(calibration.m, m, sizeof(m));
 	calibration.valid = true;
 	save_calibration();
+	set_button_area();
 	LOG_WRN("touch calibrated: %.5f %.5f %.1f / %.5f %.5f %.1f, error %.1f px", m[0], m[1], m[2],
 		m[3], m[4], m[5], error);
 	snprintf(line, sizeof(line), "calibrated: %.1f px", error);
@@ -432,5 +486,7 @@ static void panel_update(struct k_work *work)
 void panel_start(void)
 {
 	load_calibration();
+	set_button_area();
+	presses_seen = capture_touch_presses();
 	k_work_reschedule(&panel_work, K_NO_WAIT);
 }

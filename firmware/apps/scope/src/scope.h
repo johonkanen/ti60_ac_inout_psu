@@ -249,6 +249,10 @@ uint32_t capture_lcd_cols(void);
 /* the touch screen (touch_reader.vhd, registers at 1320): [0] touched, [1] X and [2] Y of the
  * last touch (0..4095), [3] the pressure's Z1 */
 void capture_touch_state(uint32_t state[4]);
+/* the stop button's area in raw touch readings (touch_reader.vhd's registers 7..10), and its
+ * presses so far */
+void capture_touch_button(uint32_t x_from, uint32_t x_to, uint32_t y_from, uint32_t y_to);
+uint32_t capture_touch_presses(void);
 /* the commit the FPGA image was built from: bits 27..0 its hash's first 7 hex digits, bit 31 the
  * tree had changes */
 uint32_t capture_fpga_version(void);

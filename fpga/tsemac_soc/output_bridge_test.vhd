@@ -95,7 +95,9 @@ entity output_bridge_test is
         -- armed or running (its ramp down too): the DHB keeps running while it is
         active_out        : out boolean;
         -- a scope probe: lane 0 running, 1 stepped, 2 and 3 leg 1's and leg 2's high sides
-        probe   : out scope_sample
+        probe   : out scope_sample;
+        -- a clock's pulse: stop, as the register's stop (the face panel's stop button)
+        stop_in : in boolean := false
     );
 end entity output_bridge_test;
 
@@ -250,7 +252,7 @@ begin
 
             -- (the watchdog's once: not again while the output is brought down)
             stop := (write_is_requested_to_address(bus_in, g_base_address) and get_slv_data(bus_in)(1) = '1')
-                    or (watchdog_expired and not ramping_down);
+                    or (watchdog_expired and not ramping_down) or stop_in;
             if watchdog_expired then
                 watchdog_stopped <= true;
             end if;

@@ -10,6 +10,12 @@ library ieee;
 -- then X and Y, all differential, powered down between (PD 00). A touch is Z1 at or over the
 -- threshold; X and Y are kept from the last poll that was one.
 --
+-- A stop button: a touch inside the button's area (raw readings, registers 7..10) for two polls
+-- in a row (10 ms) pulses stop_out for a clock, once a press: the next one needs a poll outside
+-- first. The area's defaults are the STOP button drawn by lcd_display (x 330..469, y 236..309
+-- pixels) through the board's calibration (the controller's axes swapped and mirrored against
+-- the screen's), so it works before, or without, the software writing its own.
+--
 -- SPI mode 0 at 125 MHz / (2 g_half_period): 1 MHz by default (the XPT2046 takes up to 2.5 MHz
 -- at 3.3 V). Its data out changes after DCLK's fall and is taken at the next rise.
 --
@@ -19,6 +25,9 @@ library ieee;
 --   3  R  Z1 of the last poll               4 R Z2
 --   5  R  polls done
 --   6  RW the touch threshold on Z1 (100)
+--   7  RW the stop button's X from (573)     8 RW to (1411)
+--   9  RW its Y from (376)                   10 RW to (1457)
+--   11 R  stop button presses
 entity touch_reader is
     generic(
         g_base_address : natural := 1320;
@@ -32,7 +41,8 @@ entity touch_reader is
         t_cs    : out std_logic;
         t_clk   : out std_logic;
         t_din   : out std_logic;    -- to the controller
-        t_dout  : in std_logic      -- from it
+        t_dout  : in std_logic;     -- from it
+        stop_out : out boolean      -- the stop button pressed: a clock's pulse
     );
 end entity touch_reader;
 
@@ -54,6 +64,13 @@ architecture rtl of touch_reader is
     constant commands : command_array := (x"B0", x"C0", x"D0", x"90");   -- Z1, Z2, X, Y
 
     signal threshold_r : std_logic_vector(31 downto 0) := to_slv(100);
+    signal x_from_r    : std_logic_vector(31 downto 0) := to_slv(573);
+    signal x_to_r      : std_logic_vector(31 downto 0) := to_slv(1411);
+    signal y_from_r    : std_logic_vector(31 downto 0) := to_slv(376);
+    signal y_to_r      : std_logic_vector(31 downto 0) := to_slv(1457);
+    signal presses     : unsigned(31 downto 0) := (others => '0');
+    signal inside_polls : natural range 0 to 2 := 0;     -- in a row
+    signal stop_r      : boolean := false;
     signal polls       : unsigned(31 downto 0) := (others => '0');
     signal touched     : boolean := false;
     signal x_r, y_r, z1_r, z2_r : natural range 0 to 4095 := 0;
@@ -78,12 +95,14 @@ architecture rtl of touch_reader is
 
 begin
 
+    stop_out <= stop_r;
     t_cs  <= cs_r;
     t_clk <= clk_r;
     t_din <= din_r;
 
     process(clock)
         variable value : natural range 0 to 4095;
+        variable inside : boolean;
     begin
         if rising_edge(clock) then
             init_bus(bus_out);
@@ -94,6 +113,13 @@ begin
             connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 4, to_slv(z2_r));
             connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 5, std_logic_vector(polls));
             connect_data_to_address(bus_in, bus_out, g_base_address + 6, threshold_r);
+            connect_data_to_address(bus_in, bus_out, g_base_address + 7, x_from_r);
+            connect_data_to_address(bus_in, bus_out, g_base_address + 8, x_to_r);
+            connect_data_to_address(bus_in, bus_out, g_base_address + 9, y_from_r);
+            connect_data_to_address(bus_in, bus_out, g_base_address + 10, y_to_r);
+            connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 11, std_logic_vector(presses));
+
+            stop_r <= false;
 
             dout_sync <= dout_sync(0) & t_dout;
 
@@ -151,6 +177,21 @@ begin
                             if values(0) >= to_integer(unsigned(threshold_r(11 downto 0))) then
                                 x_r <= values(2);
                                 y_r <= value;
+                            end if;
+                            -- the stop button: inside for two polls in a row, once a press
+                            inside := values(0) >= to_integer(unsigned(threshold_r(11 downto 0)))
+                                and values(2) >= to_integer(unsigned(x_from_r(11 downto 0)))
+                                and values(2) <= to_integer(unsigned(x_to_r(11 downto 0)))
+                                and value >= to_integer(unsigned(y_from_r(11 downto 0)))
+                                and value <= to_integer(unsigned(y_to_r(11 downto 0)));
+                            if not inside then
+                                inside_polls <= 0;
+                            elsif inside_polls < 2 then
+                                inside_polls <= inside_polls + 1;
+                                if inside_polls = 1 then
+                                    stop_r  <= true;
+                                    presses <= presses + 1;
+                                end if;
                             end if;
                         end if;
                     end if;

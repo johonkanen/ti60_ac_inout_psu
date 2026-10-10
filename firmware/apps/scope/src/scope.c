@@ -573,7 +573,7 @@ static void broadcast_status(void)
 		 "\"control\":[%.3f,%.2f,%.2f,%.2f,%u,%u],\"waveform\":[%u,%u],"
 		 "\"input\":[%u,%u,%.3f,%.3f],"
 		 "\"boost\":[%u,%.3f,%.4f,%.3f,%.3f,%.3f,%.3f,%.2f,%u],"
-		 "\"touch\":[%u,%u,%u,%u,%d,%d,%u]}",
+		 "\"touch\":[%u,%u,%u,%u,%d,%d,%u,%u]}",
 		 status.state, status.captures, status.forced ? "true" : "false",
 		 status.running ? "true" : "false", stream_lost(), adc.rates[0], adc.rates[1],
 		 adc.sdm_rate, capture_gate_power_on(), copy_us, send_us, capture_dhb_status(),
@@ -590,7 +590,8 @@ static void broadcast_status(void)
 		 boost_state[0], capture_boost_value(0), capture_boost_value(1), capture_boost_value(2),
 		 capture_boost_value(3), capture_boost_value(4), capture_boost_value(5),
 		 capture_boost_value(6), boost_state[1], touch_state[0], touch_state[1],
-		 touch_state[2], touch_state[3], touch_x, touch_y, panel_calibrating());
+		 touch_state[2], touch_state[3], touch_x, touch_y, panel_calibrating(),
+		 capture_touch_presses());
 	k_mutex_unlock(&scope_lock);
 
 	for (int i = 0; i < MAX_CLIENTS; i++) {

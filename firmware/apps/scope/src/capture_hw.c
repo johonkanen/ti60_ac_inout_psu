@@ -716,6 +716,19 @@ uint32_t capture_fpga_version(void)
 
 #define TOUCH_REGISTER(r) (REGISTERS + 4 * 1320 + 4 * (r))
 
+void capture_touch_button(uint32_t x_from, uint32_t x_to, uint32_t y_from, uint32_t y_to)
+{
+	sys_write32(x_from, TOUCH_REGISTER(7));
+	sys_write32(x_to, TOUCH_REGISTER(8));
+	sys_write32(y_from, TOUCH_REGISTER(9));
+	sys_write32(y_to, TOUCH_REGISTER(10));
+}
+
+uint32_t capture_touch_presses(void)
+{
+	return sys_read32(TOUCH_REGISTER(11));
+}
+
 void capture_touch_state(uint32_t state[4])
 {
 	state[0] = sys_read32(TOUCH_REGISTER(0)) & 1;
