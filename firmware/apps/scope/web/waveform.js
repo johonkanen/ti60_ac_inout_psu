@@ -10,6 +10,12 @@
 // feedforward asks for (C dv/dt, C the observer's filter capacitance), against the current
 // limit.
 //
+// The generator makes points of a shape, among them a grid's voltage: a sine and its
+// harmonics (orders, amplitudes in % of the fundamental, phases), optionally pre-compensated
+// for the control's prefilter, which passes higher orders weaker and later; noise (Gaussian,
+// seeded) goes on what it makes or on the points as they are. Under the plot the harmonics of
+// a period of the points and of the expected output are shown against the set ones, with THD.
+//
 // The points are kept in the browser (localStorage) between visits. Load writes them into the
 // FPGA's table (waveform_player, hello.waveform.capacity points), with the passes; Run loads
 // them and runs the output bridge's closed loop on them after the DHB's precharge, as the scope
@@ -104,6 +110,7 @@ function undo() {
 function changed() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(points)); } catch (e) { /* private window */ }
   computePreview();
+  analyse();
   buildTable();
   showSummary();
   showBoard();
@@ -587,8 +594,133 @@ function shapeAt(shape, phase, k, count) {
   return 0;
 }
 
+// ------------------------------------------------------------------ the grid's harmonics
+// [order, % of the fundamental, phase in degrees]: the phase of sin(n wt + phase), 0 on
+// orders 3, 7, 11.. and 180 on 5, 9, 13.. lowering the peak (a flat top, as rectifier loads make)
+const HARMONIC_PRESETS = {
+  clean: [],
+  lv: [[3, 1.5, 0], [5, 4, 180], [7, 3, 0], [11, 1.5, 0], [13, 1, 180]],
+  flat: [[3, 3, 0], [5, 2, 180]],
+  en50160: [[3, 5, 0], [5, 6, 180], [7, 5, 0], [9, 1.5, 180], [11, 3.5, 0], [13, 3, 180]],
+  rectifier: [[5, 4, 180], [7, 2.5, 0], [11, 1.5, 0], [13, 1, 180]],
+};
+let harmonics = HARMONIC_PRESETS.lv.map(h => h.slice());
+let lastGrid = null;      // the grid last generated: {frequency, harmonics}, for the analysis
+
+function prefilterHz() {
+  return config && config.control_prefilter_hz !== undefined ? config.control_prefilter_hz : 1000;
+}
+
+// the control's prefilter at a frequency: two first order stages a bridge period each,
+// H(z) = (a / (1 - (1 - a) z^-1))^2; {gain, phase (rad)}
+function prefilterResponse(hz) {
+  const f = prefilterHz();
+  if (!(f > 0)) return {gain: 1, phase: 0};
+  const a = 1 - Math.exp(-2 * Math.PI * f * PERIOD_MS * 1e-3);
+  const w = 2 * Math.PI * hz * PERIOD_MS * 1e-3;
+  // 1 - (1 - a) e^-jw
+  const re = 1 - (1 - a) * Math.cos(w), im = (1 - a) * Math.sin(w);
+  const gain1 = a / Math.hypot(re, im);
+  const phase1 = -Math.atan2(im, re);
+  return {gain: gain1 * gain1, phase: 2 * phase1};
+}
+
+// the closed loop after the prefilter, from the points to the output voltage (the observer's),
+// measured on the board on 2026-10-10 with 10 V tones at the default tuning (voltage loop 1 kHz,
+// its zero 0.1, prefilter 1 kHz with feedforward): [Hz, gain, phase in degrees]; between the
+// tones interpolated, beyond them the nearest's
+const LOOP_RESPONSE = [[50, 0.979, 0.1], [150, 1.145, 2.8], [250, 1.182, -6.4], [350, 1.109, -11.9],
+                       [450, 1.066, -11.6], [550, 1.061, -9.5], [650, 1.072, -12.2]];
+
+function loopResponse(hz) {
+  const r = LOOP_RESPONSE;
+  if (hz <= r[0][0]) return {gain: r[0][1], phase: r[0][2] * Math.PI / 180};
+  for (let i = 1; i < r.length; i++) {
+    if (hz <= r[i][0]) {
+      const x = (hz - r[i - 1][0]) / (r[i][0] - r[i - 1][0]);
+      return {gain: r[i - 1][1] + x * (r[i][1] - r[i - 1][1]),
+              phase: (r[i - 1][2] + x * (r[i][2] - r[i - 1][2])) * Math.PI / 180};
+    }
+  }
+  const last = r[r.length - 1];
+  return {gain: last[1], phase: last[2] * Math.PI / 180};
+}
+
+function thdOf(list) {
+  return Math.sqrt(list.reduce((sum, [, percent]) => sum + percent * percent, 0));
+}
+
+function buildHarmonics() {
+  const body = $('harmonics').querySelector('tbody');
+  body.textContent = '';
+  harmonics.forEach((h, i) => {
+    const row = document.createElement('tr');
+    const fields = [['order', 1, 2, 199], ['percent', 0.1, 0, 100], ['phase', 5, -360, 360]];
+    fields.forEach(([, step, min, max], j) => {
+      const input = document.createElement('input');
+      input.type = 'number'; input.step = step; input.min = min; input.max = max; input.value = h[j];
+      input.onchange = () => {
+        const value = +input.value;
+        harmonics[i][j] = j === 0 ? Math.max(2, Math.round(value)) : value;
+        harmonicsChanged();
+      };
+      const cell = document.createElement('td'); cell.appendChild(input); row.appendChild(cell);
+    });
+    const remove = document.createElement('button');
+    remove.className = 'small'; remove.textContent = '×'; remove.title = 'remove the harmonic';
+    remove.onclick = () => { harmonics.splice(i, 1); harmonicsChanged(); };
+    const cell = document.createElement('td'); cell.appendChild(remove); row.appendChild(cell);
+    body.appendChild(row);
+  });
+  $('harmonics_thd').textContent = `THD ${thdOf(harmonics).toFixed(2)} %`;
+}
+
+function harmonicsChanged() {
+  try { localStorage.setItem('waveform.harmonics', JSON.stringify(harmonics)); } catch (e) { /* */ }
+  buildHarmonics();
+}
+
+// the grid's components: the fundamental and the harmonics as {order, amplitude (of the
+// fundamental's 1), phase (rad)}, pre-compensated for the prefilter and the holds if asked
+function gridComponents(frequency, holdSeconds) {
+  const list = [{order: 1, amplitude: 1, phase: 0}].concat(harmonics.map(([order, percent, degrees]) =>
+    ({order: Math.round(order), amplitude: percent / 100, phase: degrees * Math.PI / 180})));
+  if (!$('compensate').checked) return list;
+  return list.map(c => {
+    const hz = c.order * frequency;
+    const h = prefilterResponse(hz);
+    // the holds: each point a step of holdSeconds, sin(x)/x of the frequency (its delay is
+    // already off: each point is the value at its hold's middle)
+    const x = Math.PI * hz * holdSeconds;
+    const hold = x > 1e-9 ? Math.sin(x) / x : 1;
+    const loop = $('compensate_loop').checked ? loopResponse(hz) : {gain: 1, phase: 0};
+    return {order: c.order, amplitude: c.amplitude / (h.gain * hold * loop.gain),
+            phase: c.phase - h.phase - loop.phase};
+  });
+}
+
+// noise: a seeded generator (mulberry32) and Gaussian values from it (Box-Muller)
+function seededRandom(seed) {
+  let a = (seed >>> 0) || 1;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function gaussianSource(seed) {
+  const random = seededRandom(seed);
+  return () => {
+    const u = Math.max(random(), 1e-12), v = random();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  };
+}
+
 // the shape as points: each period in equal holds, the voltage at each hold's middle; the
 // periods rounded so the holds add up to the frequency's period without drift
+let clipped = 0;
 function generate() {
   const shape = $('gen_shape').value;
   const amplitude = +$('gen_amplitude').value;
@@ -597,18 +729,110 @@ function generate() {
   const count = shape === 'square' ? 2 : Math.max(2, Math.round(+$('gen_points').value));
   const periods = Math.max(1, Math.round(+$('gen_periods').value));
   const bridgePeriodsPerCycle = 1000 / frequency * PERIODS_A_MS;
+  const components = shape === 'grid' ? gridComponents(frequency, 1 / (frequency * count)) : null;
+  const rms = +$('noise_rms').value;
+  const noise = $('noise_generated').checked && rms > 0 ? gaussianSource(+$('noise_seed').value) : null;
   const out = [];
+  clipped = 0;
   for (let c = 0; c < periods; c++) {
     for (let k = 0; k < count; k++) {
       const a = Math.round((c * count + k) * bridgePeriodsPerCycle / count);
       const b = Math.round((c * count + k + 1) * bridgePeriodsPerCycle / count);
-      const v = clampVoltage(offset + amplitude * shapeAt(shape, (k + 0.5) / count, k, count));
       if (b - a < 1) continue;
+      const phase = (k + 0.5) / count;
+      let value = components ?
+        components.reduce((sum, h) => sum + h.amplitude * Math.sin(2 * Math.PI * h.order * phase + h.phase), 0) :
+        shapeAt(shape, phase, k, count);
+      let v = offset + amplitude * value;
+      if (noise) v += rms * noise();
+      const limited = clampVoltage(v);
+      if (limited !== v) clipped++;
+      v = +limited.toFixed(4);
       if (out.length && out[out.length - 1].v === v) out[out.length - 1].n += b - a;
       else out.push({v, n: b - a});
     }
   }
+  lastGrid = shape === 'grid' ? {frequency, harmonics: harmonics.map(h => h.slice())} : null;
+  $('status').textContent = clipped ? `${clipped} points beyond the bridge's limit, clipped` : $('status').textContent;
   return out;
+}
+
+// noise on the points as they are
+function addNoise() {
+  const rms = +$('noise_rms').value;
+  if (!(rms > 0) || !points.length) return;
+  remember();
+  const noise = gaussianSource(+$('noise_seed').value);
+  for (const p of points) p.v = +clampVoltage(p.v + rms * noise()).toFixed(4);
+  changed();
+}
+
+// ------------------------------------------------------------------ the harmonics of the waveform
+// a period of the fundamental (the generator's frequency) at the end of the waveform, a bridge
+// period a sample: of the points, and of the expected output (the prefilter settled: the
+// waveform played twice when it is one period long); each order's amplitude and the THD
+const ANALYSIS_ORDERS = 25;
+
+function harmonicsOf(signal, start, length) {
+  const out = [];
+  for (let n = 1; n <= ANALYSIS_ORDERS; n++) {
+    let re = 0, im = 0;
+    const w = 2 * Math.PI * n / length;
+    for (let k = 0; k < length; k++) {
+      re += signal[start + k] * Math.cos(w * k);
+      im -= signal[start + k] * Math.sin(w * k);
+    }
+    out.push(2 * Math.hypot(re, im) / length);
+  }
+  return out;
+}
+
+function analyse() {
+  const target = $('spectrum');
+  const frequency = Math.max(0.1, +$('gen_frequency').value);
+  const length = Math.round(1000 / frequency * PERIODS_A_MS);
+  const total = totalPeriods();
+  if (!total || total < length || total > PREVIEW_MAX_PERIODS || length < 8) { target.innerHTML = ''; return; }
+  const steps = new Float32Array(total);
+  let k = 0;
+  for (const p of points) for (let i = 0; i < p.n; i++) steps[k++] = p.v;
+  // the expected output settled: the points twice through the prefilter, the second time's
+  const f = prefilterHz();
+  const alpha = f > 0 ? 1 - Math.exp(-2 * Math.PI * f * PERIOD_MS * 1e-3) : 1;
+  const settled = new Float32Array(total);
+  let r1 = 0, r2 = 0;
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < total; i++) {
+      r1 += alpha * (steps[i] - r1);
+      r2 += alpha * (r1 - r2);
+      if (pass === 1) settled[i] = r2;
+    }
+  }
+  const start = total - length;
+  const a = harmonicsOf(steps, start, length);
+  const e = harmonicsOf(settled, start, length);
+  // with the closed loop's measured gain too: an estimate of the output's
+  const l = e.map((x, i) => x * loopResponse((i + 1) * frequency).gain);
+  const set = lastGrid && Math.abs(lastGrid.frequency - frequency) < 1e-9 ? lastGrid.harmonics : null;
+  const percent = (list, n) => list[0] > 1e-9 ? 100 * list[n - 1] / list[0] : 0;
+  const orders = new Set(set ? set.map(h => Math.round(h[0])).filter(n => n <= ANALYSIS_ORDERS) : []);
+  for (let n = 2; n <= ANALYSIS_ORDERS; n++) if (percent(a, n) >= 0.3 || percent(e, n) >= 0.3) orders.add(n);
+  const thd = list => list[0] > 1e-9 ?
+    100 * Math.sqrt(list.slice(1).reduce((sum, x) => sum + x * x, 0)) / list[0] : 0;
+  const setPercent = n => { const h = set && set.find(h => Math.round(h[0]) === n); return h ? h[1] : 0; };
+  const rows = [...orders].sort((x, y) => x - y).map(n =>
+    `<tr><td>${n}</td><td>${set ? setPercent(n).toFixed(2) : '—'}</td><td>${percent(a, n).toFixed(2)}</td>` +
+    `<td>${percent(e, n).toFixed(2)}</td><td>${percent(l, n).toFixed(2)}</td></tr>`).join('');
+  target.innerHTML =
+    `<table class="compact"><thead><tr><th>Order (of ${+frequency.toFixed(3)} Hz)</th><th>Set %</th>` +
+    `<th>Points %</th><th>Expected output %</th><th>With the loop %</th></tr></thead><tbody>` +
+    `<tr><td>1 (V peak)</td><td>${set ? (+$('gen_amplitude').value).toFixed(2) : '—'}</td>` +
+    `<td>${a[0].toFixed(2)}</td><td>${e[0].toFixed(2)}</td><td>${l[0].toFixed(2)}</td></tr>${rows}` +
+    `<tr><td>THD to the ${ANALYSIS_ORDERS}th</td><td>${set ? thdOf(set).toFixed(2) : '—'}</td>` +
+    `<td>${thd(a).toFixed(2)}</td><td>${thd(e).toFixed(2)}</td><td>${thd(l).toFixed(2)}</td></tr></tbody></table>` +
+    `<p class="note">The last period of ${+frequency.toFixed(3)} Hz; the expected output is the ` +
+    `control's prefilter (${f} Hz) settled; with the loop, also the closed loop's gain as measured ` +
+    `on the board at the default tuning (an estimate: other tunings differ).</p>`;
 }
 
 function exportCsv() {
@@ -659,6 +883,7 @@ function connect() {
       boardOutput = 0;
       $('status').classList.remove('error');
       computePreview();
+      analyse();
       showSummary();
       showBoard();
       draw();
@@ -688,6 +913,24 @@ $('fit').onclick = () => { view = null; draw(); };
 $('show_preview').onchange = draw;
 $('gen_replace').onclick = () => { remember(); points = generate(); selected = -1; view = null; changed(); };
 $('gen_append').onclick = () => { remember(); points = points.concat(generate()); view = null; changed(); };
+$('noise_add').onclick = addNoise;
+$('gen_shape').onchange = () => {
+  const grid = $('gen_shape').value === 'grid';
+  $('grid_editor').hidden = !grid;
+  // a grid's period wants many points for its harmonics: 200 a period leaves 15 to the 13th
+  if (grid && +$('gen_points').value < 100) { $('gen_points').value = 200; $('gen_periods').value = 1; }
+};
+$('gen_frequency').addEventListener('change', analyse);
+$('harmonic_preset').onchange = () => {
+  const preset = HARMONIC_PRESETS[$('harmonic_preset').value];
+  if (preset) { harmonics = preset.map(h => h.slice()); harmonicsChanged(); }
+  $('harmonic_preset').value = '';
+};
+$('add_harmonic').onclick = () => {
+  const next = harmonics.length ? Math.max(...harmonics.map(h => h[0])) + 2 : 3;
+  harmonics.push([next, 1, 0]);
+  harmonicsChanged();
+};
 $('export').onclick = exportCsv;
 $('import').onclick = () => $('import_file').click();
 $('import_file').onchange = async () => {
@@ -721,7 +964,8 @@ $('run').onclick = () => {
 };
 $('stop').onclick = () => send({type: 'waveform_stop'});
 for (const id of ['repeat', 'repeat_count']) $(id).addEventListener('change', () => { showSummary(); showBoard(); });
-for (const id of ['snap_v', 'snap_t', 'default_hold', 'repeat', 'repeat_count']) {
+for (const id of ['snap_v', 'snap_t', 'default_hold', 'repeat', 'repeat_count', 'noise_rms', 'noise_seed',
+                  'noise_generated', 'compensate', 'compensate_loop']) {
   $(id).addEventListener('change', () => {
     try { localStorage.setItem(`waveform.${id}`, $(id).type === 'checkbox' ? $(id).checked : $(id).value); } catch (e) { /* */ }
   });
@@ -736,12 +980,18 @@ try {
   if (Array.isArray(saved)) points = saved.filter(p => isFinite(p.v) && p.n >= 1).map(p => ({v: +p.v, n: Math.round(p.n)}));
 } catch (e) { /* none kept */ }
 if (!points.length) points = [{v: -20, n: 200}, {v: 20, n: 200}, {v: 0, n: 200}];
+try {
+  const saved = JSON.parse(localStorage.getItem('waveform.harmonics') || 'null');
+  if (Array.isArray(saved)) harmonics = saved.filter(h => Array.isArray(h) && h.length === 3).map(h => h.map(Number));
+} catch (e) { /* none kept */ }
+buildHarmonics();
 
 // the board's watchdog: a run goes on only while a page is there; this one says so every second
 setInterval(() => send({type: 'heartbeat'}), 1000);
 
 window.addEventListener('resize', resize);
 computePreview();
+analyse();
 buildTable();
 showSummary();
 showBoard();

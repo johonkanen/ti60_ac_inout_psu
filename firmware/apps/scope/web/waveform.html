@@ -41,17 +41,54 @@
           <option value="square">Square</option>
           <option value="sawtooth">Sawtooth</option>
           <option value="steps">Staircase</option>
+          <option value="grid">Grid: sine + harmonics</option>
         </select>
       </label>
-      <label>Amplitude (V) <input id="gen_amplitude" type="number" step="1" value="20"></label>
+      <label>Amplitude (V, the fundamental's peak for the grid) <input id="gen_amplitude" type="number" step="1" value="20"></label>
       <label>Offset (V) <input id="gen_offset" type="number" step="1" value="0"></label>
       <label>Frequency (Hz) <input id="gen_frequency" type="number" min="0.1" step="1" value="50"></label>
       <label>Points a period <input id="gen_points" type="number" min="2" step="1" value="40"></label>
       <label>Periods <input id="gen_periods" type="number" min="1" step="1" value="2"></label>
+      <div id="grid_editor" hidden>
+        <label>Harmonics
+          <select id="harmonic_preset">
+            <option value="">— a preset —</option>
+            <option value="clean">Clean: none</option>
+            <option value="lv">Typical LV grid, flat-topped</option>
+            <option value="flat">Flat top: 3rd and 5th</option>
+            <option value="en50160">EN 50160's individual limits</option>
+            <option value="rectifier">Rectifier loads: 5th, 7th, 11th, 13th</option>
+          </select>
+        </label>
+        <table id="harmonics" class="compact">
+          <thead><tr><th>Order</th><th>% of the fundamental</th><th>Phase (°)</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="row">
+          <button id="add_harmonic" class="small">Add a harmonic</button>
+          <span id="harmonics_thd" class="status"></span>
+        </div>
+        <label class="check"><input id="compensate" type="checkbox" checked> compensate the control's
+          prefilter (each harmonic's gain and phase)</label>
+        <label class="check"><input id="compensate_loop" type="checkbox" checked> and the closed loop's
+          response, as measured on the board (the default tuning)</label>
+        <p class="note">Each harmonic is n times the fundamental, its phase against the fundamental's
+          (sin(n ωt + phase)): 0° on the 3rd and 180° on the 5th flatten the top.</p>
+      </div>
       <div class="row">
         <button id="gen_replace" class="small">Replace</button>
         <button id="gen_append" class="small">Append</button>
       </div>
+    </section>
+    <section>
+      <h2>Noise</h2>
+      <label>RMS (V) <input id="noise_rms" type="number" min="0" step="0.1" value="0"></label>
+      <label>Seed <input id="noise_seed" type="number" min="0" step="1" value="1"></label>
+      <label class="check"><input id="noise_generated" type="checkbox"> add to what Generate makes</label>
+      <div class="row"><button id="noise_add" class="small">Add to the points</button></div>
+      <p class="note">Gaussian, a new value each point (each hold), the same for the same seed. In a
+        table played over and over the noise repeats with it; more periods in the table, longer
+        before it repeats.</p>
     </section>
     <section>
       <h2>File</h2>
@@ -74,6 +111,7 @@
       <span id="cursor" class="status"></span>
     </div>
     <canvas id="editor"></canvas>
+    <div id="spectrum"></div>
     <div id="points_note" class="note"></div>
     <table id="points" class="compact">
       <thead><tr><th>#</th><th>Start (ms)</th><th>Voltage (V)</th><th>Hold (ms)</th><th></th></tr></thead>
