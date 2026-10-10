@@ -123,3 +123,11 @@ th { color: var(--muted); font-weight: 500; }
 .adc .positions label.unnamed { color: #8a94a3; }
 .adc label.settle { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; font-size: 12px; }
 .adc label.settle input { width: 80px; }
+
+/* the waveform page */
+label.check { display: flex; align-items: center; gap: 6px; }
+label.check input { margin: 0; }
+label.check.inline { display: inline-flex; margin: 0 0 0 8px; }
+#editor { display: block; width: 100%; background: var(--panel); border-radius: 4px; touch-action: none; }
+#points input { width: 7em; }
+#summary div, #board div { margin-bottom: 3px; }

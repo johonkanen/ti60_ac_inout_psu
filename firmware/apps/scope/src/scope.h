@@ -197,6 +197,15 @@ uint32_t capture_control_steps(void);
 /* the output bridge in closed loop: the voltage controlled to a square wave of +-amplitude
  * (V), half_periods switching periods each half, periods in all; armed as capture_output_test */
 void capture_output_control_test(double amplitude, uint32_t half_periods, uint32_t periods);
+/* the output voltage's waveform (waveform_player.vhd): its table's points, 0 without one; a
+ * table of count points loaded (volts, periods of 25 us each), played passes times (0: until
+ * stopped); the closed loop on it for at most periods (it ends when the waveform does), armed
+ * as capture_output_test; the player's state: bit0 playing, bit1 finished, bits 31:16 the
+ * point held */
+uint32_t capture_waveform_capacity(void);
+void capture_waveform_load(const float *volts, const uint32_t *periods, uint32_t count, uint32_t passes);
+void capture_output_waveform_test(uint32_t periods);
+uint32_t capture_waveform_status(void);
 double capture_dhb_filtered(int secondary); /* the filtered DC link, 0 primary, 1 secondary */
 uint32_t capture_dhb_trips(void);
 double capture_dhb_trip_current(void);

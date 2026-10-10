@@ -40,6 +40,9 @@ library ieee;
 --         bit1 closed loop: the output voltage controlled (output_voltage_control) to a square
 --         wave of +-register 10 V, register 11 periods each half; its bridge references to
 --         the voltage modulator (as voltage mode's); registers 1..3, 8, 9 unused
+--         bit2 with bit1: the reference the waveform player's (waveform_player) instead of the
+--         square wave: its points from the first, a step each period; the run ends when
+--         it finishes, or after its periods, whichever is first
 --   8  RW output voltage before the step, V (0.0)
 --   9  RW output voltage after the step, V (0.0)
 --   10 RW closed loop: the square wave's amplitude, V (20.0)
@@ -76,6 +79,12 @@ entity output_bridge_test is
         period_start_out  : out boolean;
         control_u         : in fixed_number := fixed_zero;
         control_ready     : in boolean := false;
+        -- closed loop on the waveform: the player's reference and end; its start (at the run's)
+        -- and a step at each period start (after the reference is taken), pulses
+        waveform_ref      : in fixed_number := fixed_zero;
+        waveform_finished : in boolean := false;
+        waveform_start    : out boolean;
+        waveform_step     : out boolean;
         -- a scope probe: lane 0 running, 1 stepped, 2 and 3 leg 1's and leg 2's high sides
         probe   : out scope_sample
     );
@@ -101,6 +110,7 @@ architecture rtl of output_bridge_test is
     signal vafter_r   : std_logic_vector(31 downto 0) := (others => '0');
 
     signal voltage_mode : boolean := false;
+    signal waveform     : boolean := false;
     signal reference    : fixed_number := fixed_zero;
     signal vm_request   : boolean := false;
     signal vm_duty      : fixed_number;
@@ -191,6 +201,8 @@ begin
         if rising_edge(clock) then
             vm_request <= false;
             init_bus(bus_out);
+            waveform_start <= false;
+            waveform_step  <= false;
             connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 0,
                 (31 downto 3 => '0') & bit_of(armed) & bit_of(stepped) & bit_of(running));
             connect_data_to_address(bus_in, bus_out, g_base_address + 1, before_r);
@@ -230,7 +242,13 @@ begin
                 stepped     <= false;
                 voltage_mode <= mode_r(0) = '1' or mode_r(1) = '1';
                 closed_loop  <= mode_r(1) = '1';
-                v_ref_r      <= -signed(amplitude_r);
+                waveform     <= mode_r(1) = '1' and mode_r(2) = '1';
+                if mode_r(1) = '1' and mode_r(2) = '1' then
+                    v_ref_r        <= waveform_ref;   -- the first point, read ahead
+                    waveform_start <= true;
+                else
+                    v_ref_r <= -signed(amplitude_r);
+                end if;
                 square_count <= 0;
                 ramping_down <= false;
                 ramp_count   <= 0;
@@ -263,12 +281,17 @@ begin
                     else
                         ramp_count <= ramp_count + 1;
                     end if;
-                elsif periods_run + 1 >= total then
-                    -- the run's periods done: the output brought down
+                elsif periods_run + 1 >= total or (waveform and waveform_finished) then
+                    -- the run's periods done or the waveform's: the output brought down
                     ramping_down <= true;
                     ramp_count   <= 0;
                     v_ref_r      <= fixed_zero;
                     stepped      <= false;
+                elsif waveform then
+                    -- the player's point for this period, then its step to the next period
+                    v_ref_r       <= waveform_ref;
+                    waveform_step <= true;
+                    stepped       <= waveform_ref > 0;   -- lane 1: the reference positive
                 elsif square_count + 1 >= half_cycle then
                     square_count <= 0;
                     v_ref_r <= -v_ref_r;

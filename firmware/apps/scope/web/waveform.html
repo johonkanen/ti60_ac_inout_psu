@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ti60 Waveform</title>
+<link rel="stylesheet" href="scope.css">
+</head>
+<body>
+<header>
+  <h1>Ti60 Waveform</h1>
+  <nav><a href="index.html">Scope</a> · <a href="collect.html">Data collection</a> · <a href="update.html">Update</a></nav>
+  <div class="buttons">
+    <button id="load" title="write the points into the FPGA's table">Load to board</button>
+    <button id="run" class="primary" title="the output follows the loaded points">Run</button>
+    <button id="stop" title="the output brought down to 0 V">Stop</button>
+  </div>
+  <div id="status" class="status">connecting…</div>
+</header>
+<main>
+  <aside>
+    <section>
+      <h2>Waveform</h2>
+      <p class="note">Points of the output voltage, each held for a time, played in order. Click
+        the plot to add a point there, drag a level up or down or a step's edge sideways,
+        right-click a level (or Delete) to remove its point. Ctrl+Z undoes; the wheel zooms the
+        time.</p>
+      <div id="summary" class="note"></div>
+      <label class="check"><input id="repeat" type="checkbox"> repeat</label>
+      <label>Times (0: until stopped) <input id="repeat_count" type="number" min="0" step="1" value="0"></label>
+      <label>Voltage snap (V) <input id="snap_v" type="number" min="0" step="0.5" value="1"></label>
+      <label>Time snap (ms) <input id="snap_t" type="number" min="0.025" step="0.025" value="0.1"></label>
+      <label>New point's hold (ms) <input id="default_hold" type="number" min="0.025" step="0.025" value="1"></label>
+    </section>
+    <section>
+      <h2>Generate</h2>
+      <label>Shape
+        <select id="gen_shape">
+          <option value="sine">Sine</option>
+          <option value="triangle">Triangle</option>
+          <option value="square">Square</option>
+          <option value="sawtooth">Sawtooth</option>
+          <option value="steps">Staircase</option>
+        </select>
+      </label>
+      <label>Amplitude (V) <input id="gen_amplitude" type="number" step="1" value="20"></label>
+      <label>Offset (V) <input id="gen_offset" type="number" step="1" value="0"></label>
+      <label>Frequency (Hz) <input id="gen_frequency" type="number" min="0.1" step="1" value="50"></label>
+      <label>Points a period <input id="gen_points" type="number" min="2" step="1" value="40"></label>
+      <label>Periods <input id="gen_periods" type="number" min="1" step="1" value="2"></label>
+      <div class="row">
+        <button id="gen_replace" class="small">Replace</button>
+        <button id="gen_append" class="small">Append</button>
+      </div>
+    </section>
+    <section>
+      <h2>File</h2>
+      <div class="row">
+        <button id="export" class="small" title="voltage_V,hold_ms a line">Export CSV</button>
+        <button id="import" class="small">Import CSV</button>
+        <button id="clear" class="small">Clear</button>
+        <input id="import_file" type="file" accept=".csv,text/csv,text/plain" hidden>
+      </div>
+    </section>
+    <section>
+      <h2>Board</h2>
+      <div id="board" class="note"></div>
+    </section>
+  </aside>
+  <div class="display">
+    <div class="row toolbar">
+      <button id="fit" class="small" title="the whole waveform">Fit</button>
+      <label class="check inline"><input id="show_preview" type="checkbox" checked> expected output (the control's prefilter)</label>
+      <span id="cursor" class="status"></span>
+    </div>
+    <canvas id="editor"></canvas>
+    <div id="points_note" class="note"></div>
+    <table id="points" class="compact">
+      <thead><tr><th>#</th><th>Start (ms)</th><th>Voltage (V)</th><th>Hold (ms)</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="row"><button id="add_row" class="small">Add a point</button></div>
+  </div>
+</main>
+<script src="waveform.js"></script>
+</body>
+</html>

@@ -575,6 +575,42 @@ void capture_output_control_test(double amplitude, uint32_t half_periods, uint32
 	sys_write32(BIT(0), OUTPUT_REGISTER(0));
 }
 
+/* waveform_player.vhd's registers at 1200: 0 the points, 1 the passes, 2 the index the next
+ * entry goes to, 3 its voltage (20 fractional bits), 4 its periods (writes the entry, the index
+ * on), 5 the state, 6 the passes done */
+#define WAVEFORM_REGISTER(r) (REGISTERS + 4 * 1200 + 4 * (r))
+#define WAVEFORM_POINTS      512
+
+uint32_t capture_waveform_capacity(void)
+{
+	return WAVEFORM_POINTS;
+}
+
+void capture_waveform_load(const float *volts, const uint32_t *periods, uint32_t count, uint32_t passes)
+{
+	count = MIN(count, WAVEFORM_POINTS);
+	sys_write32(MAX(count, 1), WAVEFORM_REGISTER(0));
+	sys_write32(passes, WAVEFORM_REGISTER(1));
+	sys_write32(0, WAVEFORM_REGISTER(2));
+	for (uint32_t n = 0; n < count; n++) {
+		sys_write32(to_fixed(volts[n]), WAVEFORM_REGISTER(3));
+		sys_write32(MAX(periods[n], 1), WAVEFORM_REGISTER(4));
+	}
+}
+
+uint32_t capture_waveform_status(void)
+{
+	return sys_read32(WAVEFORM_REGISTER(5));
+}
+
+/* registers 7 bit1 closed loop and bit2 its reference the waveform's */
+void capture_output_waveform_test(uint32_t periods)
+{
+	sys_write32(BIT(1) | BIT(2), OUTPUT_REGISTER(7));
+	sys_write32(periods, OUTPUT_REGISTER(4));
+	sys_write32(BIT(0), OUTPUT_REGISTER(0));
+}
+
 void capture_output_stop(void)
 {
 	sys_write32(BIT(1), OUTPUT_REGISTER(0));

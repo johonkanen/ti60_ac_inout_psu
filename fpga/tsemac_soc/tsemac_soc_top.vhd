@@ -34,6 +34,8 @@ library ieee;
 --                       overcurrent and overvoltage trips
 --   output_bridge_test  the output full bridge at 40 kHz: open loop steps, or closed loop on
 --                       the control's references (1140..)
+--   waveform_player     the output voltage's waveform: 512 points of (voltage, periods), the
+--                       closed loop's reference in the output test's waveform mode (1200..)
 --   output_control_processor
 --                       the output filter's observer (1160..) and the output voltage's
 --                       cascaded control (1180..) on a microprogram processor
@@ -185,6 +187,9 @@ architecture rtl of tsemac_soc_top is
     signal output_leg1, output_leg2 : dhb_leg_gates;
     signal output_probe         : scope_sample;
     signal bus_from_output_control : fpga_interconnect_record := init_fpga_interconnect;
+    signal bus_from_waveform    : fpga_interconnect_record := init_fpga_interconnect;
+    signal waveform_ref         : fixed_number;
+    signal waveform_finished, waveform_start, waveform_step : boolean;
     signal output_running       : boolean;
     signal output_reference     : fixed_number;
     signal observer_probes      : scope_sample_array(0 to 3);
@@ -313,7 +318,8 @@ begin
     );
     bus_from_slaves <= bus_from_scope and bus_from_adc and bus_from_update and bus_from_gate_power
                        and bus_from_dhb and bus_from_scaler and bus_from_dhb_control
-                       and bus_from_protection and bus_from_output and bus_from_output_control;
+                       and bus_from_protection and bus_from_output and bus_from_output_control
+                       and bus_from_waveform;
 ------------------------------------------------------------------------
     -- the golden or application image (image_role_pkg, written by build.sh), and switching
     -- between them, registers at 800..
@@ -500,7 +506,26 @@ begin
         ,period_start_out  => output_period_start
         ,control_u         => control_u
         ,control_ready     => control_ready
+        ,waveform_ref      => waveform_ref
+        ,waveform_finished => waveform_finished
+        ,waveform_start    => waveform_start
+        ,waveform_step     => waveform_step
         ,probe   => output_probe
+    );
+
+    -- the output voltage's arbitrary waveform (registers 1200..): a table of 512 points, the
+    -- closed loop's reference in the output test's waveform mode
+    u_waveform : entity work.waveform_player
+    generic map(g_base_address => 1200, g_points => 512)
+    port map(
+        clock     => io_tseClk
+        ,bus_in   => bus_to_slaves
+        ,bus_out  => bus_from_waveform
+        ,start    => waveform_start
+        ,step     => waveform_step
+        ,running  => closed_loop
+        ,v_ref    => waveform_ref
+        ,finished => waveform_finished
     );
 
     -- the output filter's observer (registers 1160..) and the output voltage's control

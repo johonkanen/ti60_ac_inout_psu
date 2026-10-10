@@ -23,7 +23,7 @@ LOG_MODULE_REGISTER(scope, LOG_LEVEL_INF);
 #define MAX_CLIENTS        4  /* the scope and data collection pages, a script */
 #define CLIENT_STACK_SIZE  4096
 #define SCOPE_STACK_SIZE   4096
-#define COMMAND_MAX        1024
+#define COMMAND_MAX        16384 /* a waveform's 512 points as JSON, ~6 kB */
 #define HEADER_MAX         512
 #define SEND_TIMEOUT_MS    2000
 #define DISPLAY_INTERVAL_MS 33 /* a browser redraws at most this often anyway */
@@ -125,8 +125,11 @@ static K_MUTEX_DEFINE(scope_lock);
 static struct client {
 	int sock;
 	struct k_thread thread;
-	char command[COMMAND_MAX];
+	char *command; /* commands[] */
 } clients[MAX_CLIENTS] = {[0 ... MAX_CLIENTS - 1] = {.sock = -1}};
+
+/* the clients' incoming commands, apart from clients[] so they are not in the image's data */
+static char commands[MAX_CLIENTS][COMMAND_MAX];
 
 static K_THREAD_STACK_ARRAY_DEFINE(client_stacks, MAX_CLIENTS, CLIENT_STACK_SIZE);
 /* one message to a client at a time */
@@ -187,6 +190,63 @@ static bool json_string_is(const char *message, const char *key, const char *exp
 	size_t n = strlen(expected);
 
 	return p != NULL && p[0] == '"' && strncmp(p + 1, expected, n) == 0 && p[n + 1] == '"';
+}
+
+/* the waveform loaded last, its points (the player's table holds capture_waveform_capacity()) */
+static uint32_t waveform_loaded;
+
+/* a waveform_load message's points, [[volts, periods], ...], into the player's table, with
+ * its passes; the points taken, as many as the table holds */
+static uint32_t parse_waveform(const char *message, double passes)
+{
+	static float volts[512];
+	static uint32_t periods[512];
+	const uint32_t capacity = MIN(capture_waveform_capacity(), ARRAY_SIZE(volts));
+	const char *p = json_value(message, "points");
+	uint32_t count = 0;
+	char *end;
+
+	if (p == NULL || *p != '[' || capacity == 0) {
+		return 0;
+	}
+	p++;
+	while (count < capacity) {
+		while (*p == ' ' || *p == ',') {
+			p++;
+		}
+		if (*p != '[') {
+			break;
+		}
+		double v = strtod(p + 1, &end);
+
+		if (end == p + 1) {
+			break;
+		}
+		p = end;
+		while (*p == ' ' || *p == ',') {
+			p++;
+		}
+		double n = strtod(p, &end);
+
+		if (end == p) {
+			break;
+		}
+		p = end;
+		while (*p == ' ') {
+			p++;
+		}
+		if (*p != ']') {
+			break;
+		}
+		p++;
+		volts[count] = (float)CLAMP(v, -450.0, 450.0);
+		periods[count] = (uint32_t)CLAMP(n, 1.0, 4.0e9);
+		count++;
+	}
+	if (count > 0) {
+		capture_waveform_load(volts, periods, count, (uint32_t)passes);
+	}
+	return count;
 }
 
 /* gate_power and dhb_control only from a page: after a restart the gate driver supplies and
@@ -452,15 +512,27 @@ static void send_hello(int sock)
 		n += snprintf(message + n, sizeof(message) - n, "%s\"%s\"", s ? "," : "",
 			      scope_source_names[s]);
 	}
-	snprintf(message + n, sizeof(message) - n, "],\"clock_hz\":%.0f,\"max_length\":%d}",
-		 SCOPE_CLOCK_HZ, SCOPE_MAX_LENGTH);
+	n += snprintf(message + n, sizeof(message) - n, "],\"clock_hz\":%.0f,\"max_length\":%d",
+		      SCOPE_CLOCK_HZ, SCOPE_MAX_LENGTH);
+	if (capture_waveform_capacity() > 0) {
+		n += snprintf(message + n, sizeof(message) - n, ",\"waveform\":{\"capacity\":%u}",
+			      capture_waveform_capacity());
+	}
+	snprintf(message + n, sizeof(message) - n, "}");
 	send_text(sock, message);
 }
+
+/* when the status last went out: an idle board sends it every STATUS_IDLE_MS anyway, so the
+ * pages follow a run, the DC links and the waveform player without asking */
+#define STATUS_IDLE_MS 500
+static int64_t last_status;
 
 static void broadcast_status(void)
 {
 	char message[1024];
 	int64_t now = k_uptime_get();
+
+	last_status = now;
 
 	k_mutex_lock(&scope_lock, K_FOREVER);
 	if (now - adc.at >= 500) {
@@ -486,7 +558,7 @@ static void broadcast_status(void)
 		 "\"capture_us\":%u,\"send_us\":%u,\"dhb\":[%u,%u,%u],\"dc_links\":[%.3f,%.3f],"
 		 "\"dhb_control\":[%.5f,%d,%u],\"dhb_trip\":[%u,%.3f,%.2f],\"dhb_filtered\":[%.2f,%.2f],"
 		 "\"output\":[%u,%u],\"observer\":[%.3f,%.2f,%.2f,%.3f,%u],"
-		 "\"control\":[%.3f,%.2f,%.2f,%.2f,%u,%u]}",
+		 "\"control\":[%.3f,%.2f,%.2f,%.2f,%u,%u],\"waveform\":[%u,%u]}",
 		 status.state, status.captures, status.forced ? "true" : "false",
 		 status.running ? "true" : "false", stream_lost(), adc.rates[0], adc.rates[1],
 		 adc.sdm_rate, capture_gate_power_on(), copy_us, send_us, capture_dhb_status(),
@@ -497,7 +569,8 @@ static void broadcast_status(void)
 		 capture_output_status(), capture_output_periods(), capture_observer(0),
 		 capture_observer(1), capture_observer(2), capture_observer(3), capture_observer_steps(),
 		 capture_control(0), capture_control(1), capture_control(2), capture_control(3),
-		 capture_control_flags(), capture_control_steps());
+		 capture_control_flags(), capture_control_steps(), waveform_loaded,
+		 capture_waveform_status());
 	k_mutex_unlock(&scope_lock);
 
 	for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -608,6 +681,21 @@ static void handle_command(const char *message)
 			(uint32_t)run, invert != 0 ? ", the secondary inverted" : "");
 		capture_dhb_test((uint32_t)periods, (uint32_t)pulse, (uint32_t)ramp, (uint32_t)run,
 				 invert != 0);
+	} else if (json_string_is(message, "type", "waveform_load")) {
+		double passes = 1;
+
+		json_number(message, "passes", &passes);
+		waveform_loaded = parse_waveform(message, MAX(passes, 0.0));
+		LOG_WRN("waveform loaded: %u points, %u passes", waveform_loaded, (uint32_t)MAX(passes, 0.0));
+	} else if (json_string_is(message, "type", "waveform_run")) {
+		double periods = 4000;
+
+		json_number(message, "periods", &periods);
+		LOG_WRN("output bridge closed loop on the waveform armed: at most %u periods",
+			(uint32_t)periods);
+		capture_output_waveform_test((uint32_t)CLAMP(periods, 1.0, 40000.0));
+	} else if (json_string_is(message, "type", "waveform_stop")) {
+		capture_output_stop();
 	} else if (json_string_is(message, "type", "output_test")) {
 		double before = 0.5, after = 0.5, step = 1100, periods = 2200;
 
@@ -671,14 +759,14 @@ static void client_thread(void *p1, void *p2, void *p3)
 		uint32_t type;
 		uint64_t remaining;
 		int ret = websocket_recv_msg(client->sock, client->command + length,
-					     sizeof(client->command) - 1 - length, &type, &remaining,
+					     COMMAND_MAX - 1 - length, &type, &remaining,
 					     SYS_FOREVER_MS);
 
 		if (ret < 0 || (type & WEBSOCKET_FLAG_CLOSE)) {
 			break;
 		}
 		length += ret;
-		if (length >= sizeof(client->command) - 1) {
+		if (length >= COMMAND_MAX - 1) {
 			length = 0; /* longer than any command, drop it */
 			continue;
 		}
@@ -705,6 +793,7 @@ int scope_client_add(int ws_socket)
 
 		if (client->sock < 0) {
 			client->sock = ws_socket;
+			client->command = commands[i];
 			k_thread_create(&client->thread, client_stacks[i],
 					K_THREAD_STACK_SIZEOF(client_stacks[i]), client_thread, client,
 					NULL, NULL, K_PRIO_PREEMPT(8), 0, K_NO_WAIT);
@@ -771,6 +860,9 @@ static void scope_thread(void *p1, void *p2, void *p3)
 				status.state = "streaming";
 				broadcast_status();
 			}
+			if (k_uptime_get() - last_status >= STATUS_IDLE_MS) {
+				broadcast_status();
+			}
 			k_msleep(50);
 			continue;
 		}
@@ -779,6 +871,9 @@ static void scope_thread(void *p1, void *p2, void *p3)
 			broadcast_status();
 		}
 		if (!status.running) {
+			if (k_uptime_get() - last_status >= STATUS_IDLE_MS) {
+				broadcast_status();
+			}
 			k_msleep(50);
 			continue;
 		}

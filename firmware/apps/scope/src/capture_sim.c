@@ -321,6 +321,29 @@ void capture_output_stop(void)
 {
 }
 
+uint32_t capture_waveform_capacity(void)
+{
+	return 0; /* no waveform player without the board */
+}
+
+void capture_waveform_load(const float *volts, const uint32_t *periods, uint32_t count, uint32_t passes)
+{
+	ARG_UNUSED(volts);
+	ARG_UNUSED(periods);
+	ARG_UNUSED(count);
+	ARG_UNUSED(passes);
+}
+
+void capture_output_waveform_test(uint32_t periods)
+{
+	ARG_UNUSED(periods);
+}
+
+uint32_t capture_waveform_status(void)
+{
+	return 0;
+}
+
 uint32_t capture_output_status(void)
 {
 	return 0;

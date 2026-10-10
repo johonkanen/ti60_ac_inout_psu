@@ -41,6 +41,8 @@ architecture vunit_simulation of output_bridge_test_tb is
     signal control_ready : boolean := false;
     signal both_on       : natural := 0;
     signal dc_voltage    : fixed_number := to_fixed(94.3);
+    signal waveform_ref  : fixed_number;
+    signal waveform_finished, waveform_start, waveform_step : boolean;
 
 begin
 
@@ -48,8 +50,20 @@ begin
 
     dut : entity work.output_bridge_test
     generic map(g_base_address => base)
-    port map(clock, bus_in, bus_out, allowed, trip, dc_voltage, leg1, leg2, sample, running_out, applied_reference,
-             closed_loop_out, voltage_reference, period_start_out, control_u, control_ready, probe);
+    port map(clock => clock, bus_in => bus_in, bus_out => bus_out, allowed => allowed, trip => trip,
+             dc_voltage => dc_voltage, leg1 => leg1, leg2 => leg2, sample => sample, running_out => running_out,
+             applied_reference => applied_reference, closed_loop_out => closed_loop_out,
+             voltage_reference => voltage_reference, period_start_out => period_start_out,
+             control_u => control_u, control_ready => control_ready,
+             waveform_ref => waveform_ref, waveform_finished => waveform_finished,
+             waveform_start => waveform_start, waveform_step => waveform_step, probe => probe);
+
+    -- the waveform player as the top level connects it (registers at 1200, written only)
+    player : entity work.waveform_player
+    generic map(g_base_address => 1200, g_points => 512)
+    port map(clock => clock, bus_in => bus_in, bus_out => open, start => waveform_start,
+             step => waveform_step, running => closed_loop_out, v_ref => waveform_ref,
+             finished => waveform_finished);
 
     watch : process(clock)
     begin
@@ -258,6 +272,44 @@ begin
                 wait until rising_edge(clock);
                 check(not closed_loop_out, "a trip stops it at once");
                 trip <= false;
+
+            elsif run("closed_loop_on_the_waveform") then
+                -- the player's table: 2 V for 3 periods, -1 V for 2, two passes; then the
+                -- reference at 0 V for the ramp down, and off
+                bus_write(1200 + 0, to_signed(2, 32));
+                bus_write(1200 + 1, to_signed(2, 32));
+                bus_write(1200 + 2, to_signed(0, 32));
+                bus_write(1200 + 3, to_fixed(2.0));
+                bus_write(1200 + 4, to_signed(3, 32));
+                bus_write(1200 + 3, to_fixed(-1.0));
+                bus_write(1200 + 4, to_signed(2, 32));
+                bus_write(base + 4, to_signed(40000, 32));
+                bus_write(base + 7, to_signed(6, 32));
+                allowed <= true;
+                bus_write(base, to_signed(1, 32));
+                wait until closed_loop_out for 30 us;
+                check(closed_loop_out, "closed loop running");
+                started := now;
+                for k in 0 to 9 loop
+                    wait until period_start_out;
+                    wait for 20 ns;
+                    if k mod 5 < 3 then
+                        check(voltage_reference = to_fixed(2.0), "period " & integer'image(k) & ": 2 V, " &
+                              real'image(to_real(voltage_reference)));
+                    else
+                        check(voltage_reference = to_fixed(-1.0), "period " & integer'image(k) & ": -1 V, " &
+                              real'image(to_real(voltage_reference)));
+                    end if;
+                end loop;
+                wait until period_start_out;
+                wait for 20 ns;
+                check(voltage_reference = fixed_zero, "after the second pass the reference at 0 V");
+                check(closed_loop_out, "running on: the output brought down");
+                wait until not closed_loop_out for 6 ms;
+                info("off " & time'image(now - started) & " after the start");
+                check(not closed_loop_out, "off after the ramp down");
+                check(now - started > 209 * 25 us and now - started < 211 * 25 us,
+                      "off 200 periods after the waveform's 10");
 
             elsif run("samples_while_stopped") then
                 -- not armed, no DHB: the timer's samples, half a period apart
