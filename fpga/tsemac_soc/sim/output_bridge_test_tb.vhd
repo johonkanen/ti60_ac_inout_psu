@@ -43,6 +43,7 @@ architecture vunit_simulation of output_bridge_test_tb is
     signal dc_voltage    : fixed_number := to_fixed(94.3);
     signal waveform_ref  : fixed_number;
     signal waveform_finished, waveform_start, waveform_step : boolean;
+    signal active : boolean;
 
 begin
 
@@ -56,7 +57,8 @@ begin
              voltage_reference => voltage_reference, period_start_out => period_start_out,
              control_u => control_u, control_ready => control_ready,
              waveform_ref => waveform_ref, waveform_finished => waveform_finished,
-             waveform_start => waveform_start, waveform_step => waveform_step, probe => probe);
+             waveform_start => waveform_start, waveform_step => waveform_step, active_out => active,
+             probe => probe);
 
     -- the waveform player as the top level connects it (registers at 1200, written only)
     player : entity work.waveform_player
@@ -310,6 +312,30 @@ begin
                 check(not closed_loop_out, "off after the ramp down");
                 check(now - started > 209 * 25 us and now - started < 211 * 25 us,
                       "off 200 periods after the waveform's 10");
+
+            elsif run("until_stopped_and_active") then
+                -- periods 0: no end of its own; active while armed (the DHB not yet running),
+                -- running and ramping down, not after
+                bus_write(base + 4, to_signed(0, 32));
+                bus_write(base + 7, to_signed(2, 32));
+                bus_write(base + 10, to_fixed(15.0));
+                bus_write(base, to_signed(1, 32));
+                wait for 1 us;
+                check(active and not closed_loop_out, "armed: active, the DHB not running yet");
+                allowed <= true;
+                wait until closed_loop_out for 30 us;
+                for k in 1 to 300 loop
+                    wait until period_start_out;
+                end loop;
+                check(closed_loop_out and active, "running on after 300 periods");
+                bus_read(base + 6, v);
+                check(v >= 299, "the periods counted: " & integer'image(v));
+                bus_write(base, to_signed(2, 32));
+                wait for 1 ms;
+                check(closed_loop_out and active, "ramping down: still active");
+                wait until not closed_loop_out for 6 ms;
+                wait for 100 ns;
+                check(not active, "off: not active");
 
             elsif run("samples_while_stopped") then
                 -- not armed, no DHB: the timer's samples, half a period apart

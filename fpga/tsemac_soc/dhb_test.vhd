@@ -24,8 +24,9 @@ library ieee;
 -- in 500 ms. Its voltages are the measured DC links, primary (pri mux 1, vdc_in) and
 -- secondary (sec mux 0, vdc_out), which have the same scaling, so their ADC counts compare
 -- directly: the precharge ends when the secondary is within margin counts of the primary
--- (charged); without a run time the burst ends there, with one the bridge runs for it. A
--- precharge also ends after its set number of periods, and everything on stop.
+-- (charged); without a run time the burst ends there, with one the bridge runs for it, and on
+-- past it while hold is high (the output bridge running on its DC link). A precharge also ends
+-- after its set number of periods, and everything on stop.
 -- The start pulse, the burst length, the ramp's speed and the margin are limited here.
 --
 -- The precharge compares averages: the readings carry the switching's noise (the secondary's
@@ -46,7 +47,7 @@ library ieee;
 --   5  RW charged within this many ADC counts of the primary, 0..1000 (84: 5 V)
 --   6  RW run time after the precharge in carrier periods, 0..75000 (0: stop when charged)
 --   7  RW bit0 the secondary leg inverted (its high and low side gates swapped)
---   8  R  carrier periods run in the last burst
+--   8  R  carrier periods run in the last burst (the held ones too)
 entity dhb_test is
     generic(
         g_base_address : natural := 780
@@ -69,7 +70,10 @@ entity dhb_test is
         secondary_voltage : in scope_sample;
         dhb_clock     : in std_logic;
         primary_gates   : out dhb_leg_gates;
-        secondary_gates : out dhb_leg_gates
+        secondary_gates : out dhb_leg_gates;
+        -- synchronous to clock: while high the bridge runs on past its run time (the output
+        -- bridge armed or running), stopping at the first period after it falls
+        hold            : in boolean := false
     );
 end entity dhb_test;
 
@@ -122,7 +126,8 @@ architecture rtl of dhb_test is
     signal burst_bit  : std_logic := '0';
     signal charged_bit : std_logic := '0';   -- the last burst ended charged
     signal running_bit : std_logic := '0';
-    signal run_periods, run_count : natural range 0 to max_periods := 0;
+    signal run_periods : natural range 0 to max_periods := 0;
+    signal run_count   : natural range 0 to 2**30 := 0;   -- on past run_periods while held
     signal inverted    : boolean := false;
     signal phase_sync  : std_logic_vector(2 downto 0) := "000";
     signal phase_now   : dhb_phase := 0;
@@ -283,13 +288,13 @@ begin
                     bursting    <= false;
                     charged_bit <= '1';
                 elsif dhb_out.state = running then
-                    -- running: both legs, run_periods of them
+                    -- running: both legs, run_periods of them, and on while held
                     charged_bit <= '1';
                     if dhb_out.period_start then
-                        if run_count >= run_periods then
+                        if run_count >= run_periods and not hold then
                             stop_dhb <= true;
                             bursting <= false;
-                        else
+                        elsif run_count < 2**30 then
                             run_count <= run_count + 1;
                         end if;
                     end if;

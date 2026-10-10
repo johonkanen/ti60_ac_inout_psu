@@ -188,6 +188,7 @@ architecture rtl of tsemac_soc_top is
     signal output_probe         : scope_sample;
     signal bus_from_output_control : fpga_interconnect_record := init_fpga_interconnect;
     signal bus_from_waveform    : fpga_interconnect_record := init_fpga_interconnect;
+    signal output_active        : boolean;
     signal waveform_ref         : fixed_number;
     signal waveform_finished, waveform_start, waveform_step : boolean;
     signal output_running       : boolean;
@@ -479,6 +480,7 @@ begin
         ,phase         => dhb_phase_command
         ,trip          => dhb_trip
         ,bridge_running => dhb_running
+        ,hold          => output_active   -- on while the output bridge runs
         ,primary_voltage   => pri_positions(1)   -- vdc_in
         ,secondary_voltage => sec_positions(0)   -- vdc_out, the same scaling
         ,dhb_clock     => ram_clk      -- 200 MHz: 150 kHz, 100 ns dead time
@@ -502,6 +504,7 @@ begin
         ,running_out       => output_running
         ,applied_reference => output_reference
         ,closed_loop_out   => closed_loop
+        ,active_out        => output_active
         ,voltage_reference => square_reference
         ,period_start_out  => output_period_start
         ,control_u         => control_u

@@ -33,7 +33,8 @@ library ieee;
 --   1  RW duty before the step, 0 .. 1 (0.5: 0 V)
 --   2  RW duty after the step (0.5)
 --   3  RW carrier periods before the step (2000: 50 ms)
---   4  RW carrier periods in all, 1 .. 40000 (4000: 100 ms; at most 1 s)
+--   4  RW carrier periods in all (4000: 100 ms); 0: until stopped (a closed loop waveform also
+--         until it finishes)
 --   5  RW dead time, clock counts (13)
 --   6  R  carrier periods run
 --   7  RW bit0 voltage mode: registers 8 and 9 instead of 1 and 2
@@ -85,6 +86,8 @@ entity output_bridge_test is
         waveform_finished : in boolean := false;
         waveform_start    : out boolean;
         waveform_step     : out boolean;
+        -- armed or running (its ramp down too): the DHB keeps running while it is
+        active_out        : out boolean;
         -- a scope probe: lane 0 running, 1 stepped, 2 and 3 leg 1's and leg 2's high sides
         probe   : out scope_sample
     );
@@ -93,7 +96,8 @@ end entity output_bridge_test;
 architecture rtl of output_bridge_test is
 
     constant period      : natural := output_period_clocks;   -- 40 kHz at 125 MHz, sdm_adc's window
-    constant max_periods : natural := 40000;   -- 1 s
+    constant max_periods : natural := 40000;   -- 1 s: the step's time, the square wave's half
+    constant max_total   : natural := 2**30;   -- the run's periods: 7.5 hours
 
     function to_slv(n : natural) return std_logic_vector is
     begin
@@ -135,8 +139,9 @@ architecture rtl of output_bridge_test is
     signal stepped      : boolean := false;
     signal enable       : boolean;
     signal duty         : fixed_number := to_fixed(0.5);
-    signal periods_run  : natural range 0 to max_periods := 0;
-    signal step_at, total : natural range 0 to max_periods := 0;
+    signal periods_run  : natural range 0 to max_total := 0;
+    signal step_at      : natural range 0 to max_periods := 0;
+    signal total        : natural range 0 to max_total := 0;    -- 0: until stopped
     signal period_start : boolean;
     signal leg1_r, leg2_r : dhb_leg_gates;
     signal deadtime       : dhb_count;
@@ -187,6 +192,7 @@ begin
 
     deadtime <= limit(deadtime_r, 1, 255);
     running_out       <= enable;
+    active_out        <= armed or running;
     applied_reference <= applied_r;
     closed_loop_out   <= enable and closed_loop;
     voltage_reference <= v_ref_r;
@@ -266,7 +272,7 @@ begin
                     duty <= signed(before_r);
                 end if;
                 step_at     <= limit(step_r, 0, max_periods);
-                total       <= limit(total_r, 1, max_periods);
+                total       <= limit(total_r, 0, max_total);
                 periods_run <= 0;
             elsif running and period_start and closed_loop then
                 -- the period starting now runs on the control's reference of the period before;
@@ -281,7 +287,7 @@ begin
                     else
                         ramp_count <= ramp_count + 1;
                     end if;
-                elsif periods_run + 1 >= total or (waveform and waveform_finished) then
+                elsif (total /= 0 and periods_run + 1 >= total) or (waveform and waveform_finished) then
                     -- the run's periods done or the waveform's: the output brought down
                     ramping_down <= true;
                     ramp_count   <= 0;
@@ -300,7 +306,7 @@ begin
                     square_count <= square_count + 1;
                 end if;
                 -- the run's periods (the ramp down after them)
-                if not ramping_down and periods_run < max_periods then
+                if not ramping_down and periods_run < max_total then
                     periods_run <= periods_run + 1;
                 end if;
             elsif running and period_start then
@@ -309,7 +315,7 @@ begin
                     applied_r <= reference;
                 end if;
                 next_reference := reference;
-                if periods_run + 1 >= total then
+                if total /= 0 and periods_run + 1 >= total then
                     running <= false;
                 end if;
                 if periods_run + 1 >= step_at and not stepped then
@@ -320,7 +326,9 @@ begin
                     end if;
                     stepped <= true;
                 end if;
-                periods_run <= periods_run + 1;
+                if periods_run < max_total then
+                    periods_run <= periods_run + 1;
+                end if;
                 -- voltage mode: the next period's duty from the reference and the DC link now
                 reference <= next_reference;
                 if voltage_mode then

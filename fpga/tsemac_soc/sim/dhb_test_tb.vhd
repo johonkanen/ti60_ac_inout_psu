@@ -15,7 +15,7 @@ context vunit_lib.vunit_context;
 -- ramp: 50 ms of the 500 ms one from 200 ns pulses towards nominal, and its speed limit; and a
 -- burst that ends when the secondary DC link (a simple model) is at the primary's voltage; and
 -- with a run time, the bridge running after the precharge on the given phase, both legs, the
--- secondary inverted too.
+-- secondary inverted too; held on past its run time while hold is high.
 entity dhb_test_tb is
   generic (runner_cfg : string);
 end;
@@ -45,6 +45,7 @@ architecture vunit_simulation of dhb_test_tb is
     signal phase           : dhb_phase := 0;
     signal trip            : boolean := false;
     signal bridge_running  : boolean;
+    signal hold            : boolean := false;
     signal secondary_on    : natural := 0;   -- clocks with a secondary gate on
 
     -- pulses seen: count, the narrowest and widest high side pulse in dhb clocks
@@ -63,7 +64,7 @@ begin
     dut : entity work.dhb_test
     generic map(g_base_address => base)
     port map(clock, bus_in, bus_out, probe, phase, trip, bridge_running, primary_voltage, secondary_voltage, dhb_clock,
-             primary_gates, secondary_gates);
+             primary_gates, secondary_gates, hold);
 
     primary_voltage   <= std_logic_vector(to_unsigned(integer(primary_counts), 16));
     secondary_voltage <= std_logic_vector(to_unsigned(maximum(0, integer(secondary_counts) + noise), 16));
@@ -285,6 +286,38 @@ begin
                 wait for 50 us;
                 check(primary_gates = dhb_leg_gates_off and secondary_gates = dhb_leg_gates_off, "all off");
                 check_equal(both_on, 0, "clocks with both switches of a leg on");
+
+            elsif run("held_past_its_run_time") then
+                -- a run time of 300 periods (2 ms), held for 10 ms after the precharge: it runs
+                -- on, then stops at the first period after the hold falls; a trip still stops it
+                coupling <= 2.0e-5;
+                phase    <= 100;
+                bus_write(base + 1, 75000);
+                bus_write(base + 6, 300);
+                hold <= true;
+                bus_write(base, 1);
+                wait until bridge_running for 100 ms;
+                check(bridge_running, "running after the precharge");
+                started := now;
+                wait for 10 ms;
+                check(bridge_running, "still running 10 ms on, held past its 2 ms");
+                hold <= false;
+                wait until not bridge_running for 100 us;
+                check(not bridge_running, "stopped after the hold");
+                check(now - started > 9.9 ms and now - started < 10.1 ms, "within a period of the hold falling");
+                bus_read(base + 8, v);
+                check(v > 1490 and v < 1510, "the held periods counted: " & integer'image(v));
+                wait for 50 us;
+                check(primary_gates = dhb_leg_gates_off and secondary_gates = dhb_leg_gates_off, "all off");
+                -- held again, then a trip
+                hold <= true;
+                bus_write(base, 1);
+                wait until bridge_running for 100 ms;
+                wait for 1 ms;
+                trip <= true;
+                wait for 1 us;
+                check(primary_gates = dhb_leg_gates_off and secondary_gates = dhb_leg_gates_off, "a trip stops it held");
+                hold <= false;
 
             elsif run("the_secondary_inverted") then
                 -- inverted: the secondary's high side where its low side was, half a period on

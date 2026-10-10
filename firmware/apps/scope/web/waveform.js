@@ -13,9 +13,10 @@
 // The points are kept in the browser (localStorage) between visits. Load writes them into the
 // FPGA's table (waveform_player, hello.waveform.capacity points), with the passes; Run loads
 // them and runs the output bridge's closed loop on them after the DHB's precharge, as the scope
-// page's control run does: the run ends with the waveform (or at the most the DHB's run
-// allows) and the output brought down to 0 V. Run needs the gate driver supplies and the DHB's
-// voltage control on (the scope page's settings).
+// page's control run does: the run ends with the waveform, or on Stop when it repeats until
+// stopped, and the output brought down to 0 V; the DHB runs on as long as the output does.
+// Run needs the gate driver supplies and the DHB's voltage control on (the scope page's
+// settings).
 'use strict';
 
 const PERIOD_MS = 0.025;              // the output bridge's switching period
@@ -25,8 +26,8 @@ const PREVIEW_MAX_PERIODS = 4e6;      // longer waveforms are drawn without the 
 const TABLE_MAX_ROWS = 1000;
 const STORAGE_KEY = 'waveform.points';
 const UNDO_DEPTH = 100;
-const MAX_RUN_MS = 400;               // the DHB runs at most 500 ms, 100 ms more than the output
-const DHB_RUN_MARGIN_MS = 100;
+const DHB_RUN_MS = 100;               // the DHB's own run after its precharge; it runs on while
+                                      // the output does
 
 const $ = id => document.getElementById(id);
 
@@ -515,10 +516,9 @@ function passes() {
   return $('repeat').checked ? Math.max(0, Math.round(+$('repeat_count').value)) : 1;
 }
 
-// the run's length in bridge periods: the waveform's passes, at the most the DHB allows
+// the run's length in bridge periods: the waveform's passes; 0 until stopped
 function runPeriods() {
-  const all = passes() === 0 ? Infinity : totalPeriods() * passes();
-  return Math.min(all, MAX_RUN_MS * PERIODS_A_MS);
+  return passes() === 0 ? 0 : totalPeriods() * passes();
 }
 
 function ready() {
@@ -545,10 +545,7 @@ function showSummary() {
     lines.push('too long for the expected output');
   }
   if (points.length > capacity()) lines.push(`more points than the board's table holds`);
-  const all = passes() === 0 ? Infinity : totalPeriods() * passes();
-  if (all > MAX_RUN_MS * PERIODS_A_MS) {
-    lines.push(`a run stops after ${MAX_RUN_MS} ms (the DHB's run)`);
-  }
+  if (passes() === 0) lines.push('repeated until Stop');
   $('summary').innerHTML = lines.map(l => `<div>${l}</div>`).join('');
 }
 
@@ -705,17 +702,16 @@ $('run').onclick = () => {
   const problem = ready();
   if (problem) { $('status').textContent = problem; return; }
   const periods = runPeriods();
-  const ms = periods / PERIODS_A_MS;
   const count = passes();
-  const what = count === 0 ? 'repeated' : count === 1 ? 'once' : `${count} times`;
-  if (!confirm(`Output bridge closed loop on the waveform: ${points.length} points, ${what}, ` +
-               `${ms.toFixed(1)} ms, after the DHB's precharge (the secondary inverted, the current ` +
-               `limited to ${config.control_i_max} A); then the output brought down to 0 V?`)) return;
+  const what = count === 0 ? 'repeated until Stop' : count === 1 ? 'once' : `${count} times`;
+  const length = count === 0 ? '' : `, ${(periods / PERIODS_A_MS).toFixed(1)} ms`;
+  if (!confirm(`Output bridge closed loop on the waveform: ${points.length} points, ${what}${length}, ` +
+               `after the DHB's precharge (the secondary inverted, the current limited to ` +
+               `${config.control_i_max} A); then the output brought down to 0 V?`)) return;
   load();
-  // a few periods more than the waveform, so it ends the run itself
-  send({type: 'waveform_run', periods: Math.round(periods) + 10});
-  send({type: 'dhb_test', periods: 75000, pulse: 40, ramp: 124,
-        run: Math.min(75000, Math.round((ms + DHB_RUN_MARGIN_MS) * 150)), invert: 1});
+  // a few periods more than the waveform, so it ends the run itself; 0: until Stop
+  send({type: 'waveform_run', periods: count === 0 ? 0 : Math.round(periods) + 10});
+  send({type: 'dhb_test', periods: 75000, pulse: 40, ramp: 124, run: DHB_RUN_MS * 150, invert: 1});
   showBoard();
 };
 $('stop').onclick = () => send({type: 'waveform_stop'});

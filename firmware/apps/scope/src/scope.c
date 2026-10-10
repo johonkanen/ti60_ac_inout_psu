@@ -690,10 +690,11 @@ static void handle_command(const char *message)
 	} else if (json_string_is(message, "type", "waveform_run")) {
 		double periods = 4000;
 
+		/* 0: until stopped (or the waveform's end); the DHB runs on while the output does */
 		json_number(message, "periods", &periods);
-		LOG_WRN("output bridge closed loop on the waveform armed: at most %u periods",
-			(uint32_t)periods);
-		capture_output_waveform_test((uint32_t)CLAMP(periods, 1.0, 40000.0));
+		LOG_WRN("output bridge closed loop on the waveform armed: %u periods%s",
+			(uint32_t)periods, periods < 1 ? " (until stopped)" : "");
+		capture_output_waveform_test((uint32_t)CLAMP(periods, 0.0, 1073741824.0));
 	} else if (json_string_is(message, "type", "waveform_stop")) {
 		capture_output_stop();
 	} else if (json_string_is(message, "type", "output_test")) {
