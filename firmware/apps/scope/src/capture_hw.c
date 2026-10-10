@@ -286,6 +286,16 @@ void capture_dhb_test(uint32_t periods, uint32_t pulse_clocks, uint32_t ramp_per
 	sys_write32(BIT(0), DHB_REGISTER(0));
 }
 
+void capture_dhb_prepare(uint32_t periods, uint32_t pulse_clocks, uint32_t ramp_periods,
+			 uint32_t run_periods, bool inverted)
+{
+	sys_write32(periods, DHB_REGISTER(1));
+	sys_write32(pulse_clocks, DHB_REGISTER(2));
+	sys_write32(ramp_periods, DHB_REGISTER(4));
+	sys_write32(run_periods, DHB_REGISTER(6));
+	sys_write32(inverted ? 1 : 0, DHB_REGISTER(7));
+}
+
 void capture_dhb_stop(void)
 {
 	sys_write32(BIT(1), DHB_REGISTER(0));
@@ -613,6 +623,34 @@ void capture_output_waveform_test(uint32_t periods)
 	sys_write32(BIT(1) | BIT(2), OUTPUT_REGISTER(7));
 	sys_write32(periods, OUTPUT_REGISTER(4));
 	sys_write32(BIT(0), OUTPUT_REGISTER(0));
+}
+
+void capture_output_waveform_prepare(uint32_t periods)
+{
+	sys_write32(BIT(1) | BIT(2), OUTPUT_REGISTER(7));
+	sys_write32(periods, OUTPUT_REGISTER(4));
+}
+
+#define SEQUENCER_REGISTER(r) (REGISTERS + 4 * 1340 + 4 * (r))
+
+void capture_sequencer_start(void)
+{
+	sys_write32(BIT(0), SEQUENCER_REGISTER(0));
+}
+
+void capture_sequencer_stop(void)
+{
+	sys_write32(BIT(1), SEQUENCER_REGISTER(0));
+}
+
+void capture_sequencer_power_off(void)
+{
+	sys_write32(BIT(2), SEQUENCER_REGISTER(0));
+}
+
+uint32_t capture_sequencer_state(void)
+{
+	return sys_read32(SEQUENCER_REGISTER(0)) & 0xffff;
 }
 
 void capture_output_stop(void)

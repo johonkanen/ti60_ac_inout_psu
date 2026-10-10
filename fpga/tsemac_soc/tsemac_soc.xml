@@ -71,6 +71,7 @@
         <efx:design_file name="../source/inverter/waveform_player.vhd" version="default" library="default" />
         <efx:design_file name="output_bridge_test.vhd" version="default" library="default" />
         <efx:design_file name="../source/control/input_boost_control.vhd" version="default" library="default" />
+        <efx:design_file name="supply_sequencer.vhd" version="default" library="default" />
         <efx:design_file name="../source/lcd/lcd_font_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/lcd/lcd_display.vhd" version="default" library="default" />
         <efx:design_file name="../source/lcd/touch_reader.vhd" version="default" library="default" />

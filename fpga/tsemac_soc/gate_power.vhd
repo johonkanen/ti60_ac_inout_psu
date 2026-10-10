@@ -35,7 +35,11 @@ entity gate_power is
         clock   : in std_logic;
         bus_in  : in fpga_interconnect_record;
         bus_out : out fpga_interconnect_record;
-        pwm     : out std_logic_vector(1 to 6)
+        pwm     : out std_logic_vector(1 to 6);
+        -- the supply sequencer's hold: all six enabled (as the enables register's bits, ORed),
+        -- and all six on now
+        force_on : in boolean := false;
+        all_on   : out boolean
     );
 end entity gate_power;
 
@@ -68,6 +72,7 @@ architecture rtl of gate_power is
 begin
 
     pwm <= pwm_r;
+    all_on <= is_on = "111111";
 
     process(clock)
         variable p : natural range 0 to 2**16-1;
@@ -95,7 +100,7 @@ begin
             end if;
             started := false;
             for n in 1 to 6 loop
-                if enables_r(n - 1) = '0' then
+                if enables_r(n - 1) = '0' and not force_on then
                     is_on(n) <= '0';
                 elsif is_on(n) = '0' and not started
                       and since_on_ms >= to_integer(unsigned(stagger_r(15 downto 0))) then

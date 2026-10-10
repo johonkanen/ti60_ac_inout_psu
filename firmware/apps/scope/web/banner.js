@@ -1,10 +1,14 @@
-// The supply's banner, on top of every page: its state (running, idle: the gate driver supplies
-// on, off, tripped), Power on / off, Run, Stop, and Clear trip when tripped.
+// The supply's banner, on top of every page: its state (running, starting, idle: the gate
+// driver supplies on, off, tripped), Power on / off, Start, Stop, and Clear trip when tripped.
 //
-// The board does the sequences (scope.c's supply_*): Power on brings the gate driver supplies up
-// (one at a time, in the FPGA); Run starts the DHB and the output bridge in closed loop on the
-// loaded waveform until Stop (none loaded: 0 V held); Stop stops everything switching (the
-// output brought down to 0 V first), the supplies left on; Power off stops, then turns them off.
+// The board does the sequences (scope.c's supply_*, the FPGA's supply_sequencer): Start, from
+// off or idle, brings the gate driver supplies up (one at a time), then starts the DHB, then the
+// output bridge in closed loop on the loaded waveform until Stop (none loaded: 0 V held); Stop
+// stops everything switching (the output brought down to 0 V first), the supplies left on;
+// Power on only brings the supplies up; Power off stops, then turns them off.
+//
+// A page with a waveform of its own (the waveform page) gives it to Start (Banner.runSource):
+// Start then loads that waveform first and runs it.
 //
 // A page with its own /ws connection hands it over (Banner.useSocket(send), and each status to
 // Banner.status), so the banner takes no client of the board's few; a page without one gets the
@@ -12,6 +16,7 @@
 const Banner = (() => {
   const STATES = {
     running: 'Running',
+    starting: 'Starting',
     idle: 'Idle',
     off: 'Off',
     tripped: 'Tripped',
@@ -20,6 +25,7 @@ const Banner = (() => {
   let own = null;
   let last = null;
   let element = null;
+  let runSource = null;   // {check: () => problem or null, describe: () => text, load: () => {}}
 
   function build() {
     element = document.createElement('div');
@@ -27,7 +33,7 @@ const Banner = (() => {
     element.innerHTML = `
       <span class="supply_state" id="supply_state">…</span>
       <button id="supply_power"></button>
-      <button id="supply_run" class="supply_run">Run</button>
+      <button id="supply_run" class="supply_run">Start</button>
       <button id="supply_stop" class="supply_stop">Stop</button>
       <button id="supply_clear" class="supply_clear" hidden>Clear trip</button>
       <span class="supply_detail" id="supply_detail"></span>`;
@@ -40,11 +46,20 @@ const Banner = (() => {
       send && send({type: 'supply_power', on: on ? 1 : 0});
     };
     element.querySelector('#supply_run').onclick = () => {
-      if (!last) return;
-      const loaded = last.waveform ? last.waveform[0] : 0;
-      const what = loaded ? `the loaded waveform (${loaded} point${loaded === 1 ? '' : 's'})` : '0 V (no waveform loaded)';
-      if (!confirm(`Run: the DHB's precharge, then the output in closed loop on ${what} until Stop?`)) return;
-      send && send({type: 'supply_run'});
+      if (!last || !send) return;
+      let what;
+      if (runSource) {
+        const problem = runSource.check();
+        if (problem) { alert(`Start: ${problem}`); return; }
+        what = runSource.describe();
+      } else {
+        const loaded = last.waveform ? last.waveform[0] : 0;
+        what = loaded ? `the loaded waveform (${loaded} point${loaded === 1 ? '' : 's'})` : '0 V (no waveform loaded)';
+      }
+      const from = last.supply === 'off' ? 'the gate driver supplies, then ' : '';
+      if (!confirm(`Start: ${from}the DHB's precharge, then the output in closed loop on ${what} until Stop?`)) return;
+      if (runSource) runSource.load();
+      send({type: 'supply_run'});
     };
     element.querySelector('#supply_stop').onclick = () => send && send({type: 'supply_stop'});
     element.querySelector('#supply_clear').onclick = () => send && send({type: 'dhb_clear_trip'});
@@ -75,13 +90,18 @@ const Banner = (() => {
     const count = [0, 1, 2, 3, 4, 5].filter(n => supplies >> n & 1).length;
     power.textContent = supply === 'off' ? 'Power on' : 'Power off';
     power.disabled = false;
-    run.disabled = supply !== 'idle' || count !== 6;
+    run.disabled = !(supply === 'off' || (supply === 'idle' && count === 6));
     run.title = supply === 'idle' && count !== 6 ? 'the gate driver supplies are still coming on' : '';
     stop.disabled = false;
     clear.hidden = supply !== 'tripped';
     const parts = [`gate drivers ${count}/6`];
     if (last.dc_links) parts.push(`DC links ${last.dc_links[0].toFixed(1)} V / ${last.dc_links[1].toFixed(1)} V`);
     if (last.waveform) parts.push(last.waveform[0] ? `waveform ${last.waveform[0]} points` : 'no waveform loaded');
+    // why the last start ended, when not by a stop or its waveform's end
+    const ended = last.sequencer != null ? (last.sequencer >> 12) & 15 : 0;
+    const reasons = {1: 'a trip', 2: 'the gate driver supplies not on in time', 3: 'the DHB not running in time',
+                     4: 'the output not running in time'};
+    if (reasons[ended] && supply !== 'running' && supply !== 'starting') parts.push(`the last start ended by ${reasons[ended]}`);
     detail.textContent = parts.join(' · ');
   }
 
@@ -115,6 +135,7 @@ const Banner = (() => {
 
   return {
     useSocket: sender => { send = sender; },
+    runSource: source => { runSource = source; },
     status,
     disconnected: () => { last = null; show(); },
   };

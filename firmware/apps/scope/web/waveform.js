@@ -1249,6 +1249,21 @@ buildHarmonics();
 // the board's watchdog: a run goes on only while a page is there; this one says so every second
 setInterval(() => send({type: 'heartbeat'}), 1000);
 Banner.useSocket(send);
+// the banner's Run: this page's waveform, loaded first
+Banner.runSource({
+  check: () => {
+    if (!waveformSupport) return 'the firmware has no waveform player';
+    if (!points.length) return 'no points';
+    if (points.length > capacity()) return `more points than the board's ${capacity()}`;
+    return null;
+  },
+  describe: () => {
+    const count = passes();
+    const what = count === 0 ? 'repeated' : count === 1 ? 'once' : `${count} times`;
+    return `this page's waveform (${points.length} points, ${what})`;
+  },
+  load: () => { load(); showBoard(); },
+});
 
 window.addEventListener('resize', () => { resize(); if ($('bode_section').open) drawBode(); });
 computePreview();

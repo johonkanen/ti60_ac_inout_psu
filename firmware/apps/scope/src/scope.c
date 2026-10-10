@@ -523,16 +523,21 @@ static void send_hello(int sock)
 }
 
 /*
- * The supply's state, as the pages' banner shows it: off (the gate driver supplies off: a trip
- * latched then means nothing, the current modulators they power read nonsense), tripped (the
- * DHB protection's trip, until cleared), running (the DHB, the output bridge, armed or running,
- * or the input boost), idle (the supplies on, nothing switching).
+ * The supply's state, as the pages' banner shows it: starting (supply_sequencer.vhd bringing
+ * up the supplies, the DHB and the output), off (the gate driver supplies off: a trip latched
+ * then means nothing, the current modulators they power read nonsense), tripped (the DHB
+ * protection's trip, until cleared), running (the DHB, the output bridge, armed or running, or
+ * the input boost), idle (the supplies on, nothing switching).
  */
 static const char *supply_state(void)
 {
 	uint32_t boost[2];
+	uint32_t step = capture_sequencer_state() & 0xf;
 
 	capture_boost_state(boost);
+	if (step >= 1 && step <= 5) {
+		return "starting";
+	}
 	if (capture_gate_power_on() == 0) {
 		return "off";
 	}
@@ -545,39 +550,17 @@ static const char *supply_state(void)
 	return "idle";
 }
 
-/* stop: everything switching stopped, the gate driver supplies left on (the output's closed
- * loop brought down to 0 V first; the DHB holds on while it is) */
+/* stop: everything switching stopped, the gate driver supplies left on: the sequencer's stop
+ * (the output's closed loop brought down to 0 V, then the DHB, as the panel's STOP), and the
+ * same directly for a run the sequencer did not start */
 static void supply_stop(void)
 {
+	capture_sequencer_stop();
 	capture_output_stop();
 	capture_boost_stop();
 	if ((capture_output_status() & 5) == 0) {
 		capture_dhb_stop();
 	}
-}
-
-/* run: the DHB's precharge, then the output bridge in closed loop on the loaded waveform until
- * stop (or its end); none loaded: 0 V held. Only from idle: the supplies on, no trip. */
-#define SUPPLY_DHB_RUN_MS 100
-static void supply_run(void)
-{
-	const char *state = supply_state();
-
-	if (strcmp(state, "idle") != 0 || capture_gate_power_on() != 0x3f) {
-		LOG_WRN("run refused: the supply is %s%s", state,
-			capture_gate_power_on() != 0x3f ? ", not every gate driver supply on" : "");
-		return;
-	}
-	if (waveform_loaded == 0) {
-		static const float zero[1] = {0.0f};
-		static const uint32_t hold[1] = {40};
-
-		capture_waveform_load(zero, hold, 1, 0);
-		waveform_loaded = 1;
-	}
-	LOG_WRN("run: the DHB, then the output in closed loop on the waveform until stopped");
-	capture_output_waveform_test(0);
-	capture_dhb_test(75000, 40, 124, SUPPLY_DHB_RUN_MS * 150, true);
 }
 
 /* power: the gate driver supplies all on (the FPGA brings them up one at a time), or off: a
@@ -602,6 +585,41 @@ static void supply_power_settled(struct k_work *work)
 }
 static K_WORK_DELAYABLE_DEFINE(power_settled_work, supply_power_settled);
 
+/* start: the DHB's voltage control on and the runs set up (the DHB's precharge and its run
+ * after it, the output in closed loop on the loaded waveform until stop or its end; none
+ * loaded: 0 V held), then supply_sequencer.vhd starts them in order: the gate driver supplies,
+ * the DHB, the output. From off or idle; not when tripped (a trip latched while the supplies
+ * were off the sequencer clears). */
+#define SUPPLY_DHB_RUN_MS 100
+static void supply_run(void)
+{
+	const char *state = supply_state();
+
+	if (strcmp(state, "idle") != 0 && strcmp(state, "off") != 0) {
+		LOG_WRN("start refused: the supply is %s", state);
+		return;
+	}
+	if (waveform_loaded == 0) {
+		static const float zero[1] = {0.0f};
+		static const uint32_t hold[1] = {40};
+
+		capture_waveform_load(zero, hold, 1, 0);
+		waveform_loaded = 1;
+	}
+	/* the DHB's voltage control on, as the waveform page requires it, with the gains kept */
+	config.dhb_control = true;
+	capture_set_dhb_control(config.dhb_control, config.dhb_kp, config.dhb_ki, config.dhb_limit_high,
+				config.dhb_limit_low);
+	capture_output_waveform_prepare(0);
+	capture_dhb_prepare(75000, 40, 124, SUPPLY_DHB_RUN_MS * 150, true);
+	/* the supplies stay on after the run: the enables as the sequencer holds them */
+	k_work_cancel_delayable(&power_off_work);
+	config.gate_power = 0x3f;
+	capture_set_gate_power(config.gate_power);
+	LOG_WRN("start: the gate driver supplies, the DHB, then the output in closed loop");
+	capture_sequencer_start();
+}
+
 static void supply_power(bool on)
 {
 	if (on) {
@@ -613,6 +631,7 @@ static void supply_power(bool on)
 	} else {
 		LOG_WRN("power off: stop, then the gate driver supplies off");
 		supply_stop();
+		capture_sequencer_power_off();
 		k_work_reschedule(&power_off_work, K_MSEC(100));
 	}
 }
@@ -666,7 +685,7 @@ static void broadcast_status(void)
 		 "\"control\":[%.3f,%.2f,%.2f,%.2f,%u,%u],\"waveform\":[%u,%u],"
 		 "\"boost\":[%u,%.3f,%.4f,%.3f,%.3f,%.3f,%.3f,%.2f,%u],"
 		 "\"touch\":[%u,%u,%u,%u,%d,%d,%u,%u],"
-		 "\"supply\":\"%s\",\"gate_power\":%u}",
+		 "\"supply\":\"%s\",\"gate_power\":%u,\"sequencer\":%u}",
 		 status.state, status.captures, status.forced ? "true" : "false",
 		 status.running ? "true" : "false", stream_lost(), adc.rates[0], adc.rates[1],
 		 adc.sdm_rate, capture_gate_power_on(), copy_us, send_us, capture_dhb_status(),
@@ -683,7 +702,8 @@ static void broadcast_status(void)
 		 capture_boost_value(3), capture_boost_value(4), capture_boost_value(5),
 		 capture_boost_value(6), boost_state[1], touch_state[0], touch_state[1],
 		 touch_state[2], touch_state[3], touch_x, touch_y, panel_calibrating(),
-		 capture_touch_presses(), supply_state(), config.gate_power);
+		 capture_touch_presses(), supply_state(), config.gate_power,
+		 capture_sequencer_state());
 	k_mutex_unlock(&scope_lock);
 
 	for (int i = 0; i < MAX_CLIENTS; i++) {

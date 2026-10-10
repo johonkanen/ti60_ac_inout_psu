@@ -176,3 +176,4 @@ label.inline input { display: inline-block; width: 5.5em; margin: 0; }
 .supply_state.tripped { background: #b3261e; color: #fff; animation: supply_blink 1s step-start infinite; }
 @keyframes supply_blink { 50% { opacity: 0.6; } }
 .supply_detail { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+.supply_state.starting { background: #2f6f9f; color: #fff; }

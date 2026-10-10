@@ -42,7 +42,9 @@ entity dhb_protection is
         scaled         : in fixed_array;
         scaled_ready   : in boolean;
         scaled_channel : in natural;
-        trip           : out boolean
+        trip           : out boolean;
+        -- a clock's pulse: the trips cleared, as the register's (the supply sequencer)
+        clear_in       : in boolean := false
     );
 end entity dhb_protection;
 
@@ -129,7 +131,7 @@ begin
                 end if;
             end if;
 
-            if write_is_requested_to_address(bus_in, g_base_address + 2) and get_slv_data(bus_in)(0) = '1' then
+            if (write_is_requested_to_address(bus_in, g_base_address + 2) and get_slv_data(bus_in)(0) = '1') or clear_in then
                 overcurrent <= '0';
                 overvoltage <= '0';
             end if;

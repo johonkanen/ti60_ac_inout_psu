@@ -321,6 +321,38 @@ void capture_output_stop(void)
 {
 }
 
+void capture_output_waveform_prepare(uint32_t periods)
+{
+	ARG_UNUSED(periods);
+}
+
+void capture_dhb_prepare(uint32_t periods, uint32_t pulse_clocks, uint32_t ramp_periods,
+			 uint32_t run_periods, bool inverted)
+{
+	ARG_UNUSED(periods);
+	ARG_UNUSED(pulse_clocks);
+	ARG_UNUSED(ramp_periods);
+	ARG_UNUSED(run_periods);
+	ARG_UNUSED(inverted);
+}
+
+void capture_sequencer_start(void)
+{
+}
+
+void capture_sequencer_stop(void)
+{
+}
+
+void capture_sequencer_power_off(void)
+{
+}
+
+uint32_t capture_sequencer_state(void)
+{
+	return 0;
+}
+
 void capture_output_kick(void)
 {
 }

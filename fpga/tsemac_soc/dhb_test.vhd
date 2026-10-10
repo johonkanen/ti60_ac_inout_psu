@@ -76,7 +76,9 @@ entity dhb_test is
         hold            : in boolean := false;
         -- synchronous to clock: its rise stops the bridge, as the register's stop (the face
         -- panel's stop button)
-        stop_in         : in boolean := false
+        stop_in         : in boolean := false;
+        -- its rise starts a burst, as the register's start (the supply sequencer)
+        start_in        : in boolean := false
     );
 end entity dhb_test;
 
@@ -110,7 +112,7 @@ architecture rtl of dhb_test is
     signal primary_sum, secondary_sum : unsigned(16 + average_bits - 1 downto 0) := (others => '0');
     signal start_toggle   : std_logic := '0';
     signal stop_toggle    : std_logic := '0';
-    signal stop_in_d      : boolean := false;
+    signal stop_in_d, start_in_d : boolean := false;
     signal status_sync    : std_logic_vector(7 downto 0) := (others => '0');   -- 2 x (mode, burst, charged)
     signal count_sync     : std_logic_vector(31 downto 0) := (others => '0');
     signal gates_sync     : std_logic_vector(9 downto 0) := (others => '0');   -- 2 x 5 lanes
@@ -219,8 +221,11 @@ begin
                 end if;
             elsif stop_in and not stop_in_d then
                 stop_toggle <= not stop_toggle;
+            elsif start_in and not start_in_d then
+                start_toggle <= not start_toggle;
             end if;
-            stop_in_d <= stop_in;
+            stop_in_d  <= stop_in;
+            start_in_d <= start_in;
 
             -- back from dhb_clock: the mode and the burst flag, and the count, which changes
             -- once a period (thousands of clocks) and is only read

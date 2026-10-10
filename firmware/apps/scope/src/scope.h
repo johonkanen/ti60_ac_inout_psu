@@ -223,6 +223,19 @@ void capture_output_test(double before, double after, uint32_t step_periods, uin
  * the secondary DC link (voltage_modulator.vhd) */
 void capture_output_voltage_test(double before, double after, uint32_t step_periods, uint32_t periods);
 void capture_output_stop(void);
+/* the output's closed loop on the waveform set up (mode and periods, 0 until stopped), not
+ * armed: the supply sequencer arms it */
+void capture_output_waveform_prepare(uint32_t periods);
+/* the DHB test's settings as capture_dhb_test's, not started: the supply sequencer starts it */
+void capture_dhb_prepare(uint32_t periods, uint32_t pulse_clocks, uint32_t ramp_periods,
+			 uint32_t run_periods, bool inverted);
+/* supply_sequencer.vhd (registers 1340): start (the supplies, the DHB, the output), stop,
+ * power off; its register 0 (bits 3:0 its state, bit 8 the supplies held, 15:12 why the last
+ * start ended) */
+void capture_sequencer_start(void);
+void capture_sequencer_stop(void);
+void capture_sequencer_power_off(void);
+uint32_t capture_sequencer_state(void);
 /* the input bridge as a boost converter (input_boost_control.vhd, registers at 1260): a setting
  * by its register (1 v_ref, 2 kp_v, 3 ki_v, 4 kp_i, 5 ki_i, 6 i_max, 7 d_max, 8 the overvoltage
  * stop, 16 the ramp V/ms), start (when stopped), stop, the watchdog's kick; its state: [0] the

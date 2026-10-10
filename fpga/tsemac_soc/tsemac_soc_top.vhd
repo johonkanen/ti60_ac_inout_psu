@@ -205,6 +205,9 @@ architecture rtl of tsemac_soc_top is
     signal bus_from_version     : fpga_interconnect_record := init_fpga_interconnect;
     constant panel_hold_clocks  : natural := 12500000;     -- 100 ms
     signal panel_stop, panel_stopping, panel_stop_dhb : boolean := false;
+    signal touch_stop           : boolean;
+    signal bus_from_sequencer   : fpga_interconnect_record := init_fpga_interconnect;
+    signal seq_gates_on, gates_all_on, seq_clear_trip, seq_dhb_start, seq_output_arm, seq_stop : boolean;
     signal panel_count          : natural range 0 to panel_hold_clocks := 0;
     signal boost_inhibit        : boolean;
     signal waveform_ref         : fixed_number;
@@ -339,7 +342,8 @@ begin
                        and bus_from_dhb and bus_from_scaler and bus_from_dhb_control
                        and bus_from_protection and bus_from_output and bus_from_output_control
                        and bus_from_waveform and bus_from_boost
-                       and bus_from_lcd and bus_from_touch and bus_from_version;
+                       and bus_from_lcd and bus_from_touch and bus_from_version
+                       and bus_from_sequencer;
 ------------------------------------------------------------------------
     -- the golden or application image (image_role_pkg, written by build.sh), and switching
     -- between them, registers at 800..
@@ -470,6 +474,7 @@ begin
         ,scaled_ready   => scaled_ready
         ,scaled_channel => scaled_channel
         ,trip           => dhb_trip
+        ,clear_in       => seq_clear_trip
     );
 ------------------------------------------------------------------------
     -- the gate driver supplies, which also power the sigma-delta modulators' analog side:
@@ -481,6 +486,8 @@ begin
         ,bus_in  => bus_to_slaves
         ,bus_out => bus_from_gate_power
         ,pwm     => gate_power_pwm
+        ,force_on => seq_gates_on
+        ,all_on   => gates_all_on
     );
     (gate_power1_pwm, gate_power2_pwm, gate_power3_pwm,
      gate_power4_pwm, gate_power5_pwm, gate_power6_pwm) <= gate_power_pwm;
@@ -502,6 +509,7 @@ begin
         ,bridge_running => dhb_running
         ,hold          => output_active   -- on while the output bridge runs
         ,stop_in       => panel_stop_dhb
+        ,start_in      => seq_dhb_start
         ,primary_voltage   => pri_positions(1)   -- vdc_in
         ,secondary_voltage => sec_positions(0)   -- vdc_out, the same scaling
         ,dhb_clock     => ram_clk      -- 200 MHz: 150 kHz, 100 ns dead time
@@ -536,6 +544,7 @@ begin
         ,waveform_step     => waveform_step
         ,probe   => output_probe
         ,stop_in => panel_stop
+        ,arm_in  => seq_output_arm
     );
 
     -- the input bridge as a boost converter from a DC source (input_boost_control.vhd, registers
@@ -598,8 +607,30 @@ begin
         ,t_clk   => touch_clk
         ,t_din   => touch_din
         ,t_dout  => touch_dout
-        ,stop_out => panel_stop
+        ,stop_out => touch_stop
     );
+
+    -- the supply's start and stop in order (supply_sequencer.vhd, registers at 1340..): the
+    -- gate driver supplies, then the DHB, then the output; its stop the panel's
+    u_sequencer : entity work.supply_sequencer
+    generic map(g_base_address => 1340)
+    port map(
+        clock           => io_tseClk
+        ,bus_in         => bus_to_slaves
+        ,bus_out        => bus_from_sequencer
+        ,trip           => dhb_trip
+        ,gates_all_on   => gates_all_on
+        ,dhb_running    => dhb_running
+        ,output_running => output_running
+        ,output_active  => output_active
+        ,stop_in        => touch_stop
+        ,gates_on       => seq_gates_on
+        ,clear_trip     => seq_clear_trip
+        ,dhb_start      => seq_dhb_start
+        ,output_arm     => seq_output_arm
+        ,stop_out       => seq_stop
+    );
+    panel_stop <= touch_stop or seq_stop;
 
     -- the face panel's stop button (touch_reader's stop_out, a clock's pulse), whatever the
     -- software or the network do: the output bridge stopped as by its stop (a closed loop

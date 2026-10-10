@@ -97,7 +97,9 @@ entity output_bridge_test is
         -- a scope probe: lane 0 running, 1 stepped, 2 and 3 leg 1's and leg 2's high sides
         probe   : out scope_sample;
         -- a clock's pulse: stop, as the register's stop (the face panel's stop button)
-        stop_in : in boolean := false
+        stop_in : in boolean := false;
+        -- a clock's pulse: arm, as the register's (the supply sequencer)
+        arm_in  : in boolean := false
     );
 end entity output_bridge_test;
 
@@ -266,7 +268,7 @@ begin
                 ramping_down <= true;
                 v_ref_r      <= fixed_zero;
                 stepped      <= false;
-            elsif write_is_requested_to_address(bus_in, g_base_address) and get_slv_data(bus_in)(0) = '1'
+            elsif ((write_is_requested_to_address(bus_in, g_base_address) and get_slv_data(bus_in)(0) = '1') or arm_in)
                   and not running then
                 armed <= true;
                 watchdog_stopped <= false;
