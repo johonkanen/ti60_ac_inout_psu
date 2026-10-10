@@ -1141,6 +1141,7 @@ function connect() {
       showBoard();
       draw();
     } else if (message.type === 'status') {
+      Banner.status(message);
       if (message.waveform) {
         const before = JSON.stringify([boardWaveform, boardOutput]);
         boardWaveform = message.waveform;
@@ -1155,6 +1156,7 @@ function connect() {
     }
   };
   socket.onclose = () => {
+    Banner.disconnected();
     $('status').textContent = 'disconnected from the board, retrying…';
     $('status').classList.add('error');
     setTimeout(connect, 1000);
@@ -1246,6 +1248,7 @@ buildHarmonics();
 
 // the board's watchdog: a run goes on only while a page is there; this one says so every second
 setInterval(() => send({type: 'heartbeat'}), 1000);
+Banner.useSocket(send);
 
 window.addEventListener('resize', () => { resize(); if ($('bode_section').open) drawBode(); });
 computePreview();

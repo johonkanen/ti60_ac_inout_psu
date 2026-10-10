@@ -824,9 +824,20 @@ function connect() {
       }
     } else if (message.type === 'status') {
       showStatus(message);
+      Banner.status(message);
+      // the gate driver supplies' enables as the board has them (the banner's Power changes
+      // them too): the boxes follow, so this page's next config keeps them
+      if (message.gate_power != null && config) {
+        config.gate_power = message.gate_power;
+        for (let n = 0; n < 6; n++) {
+          const box = $(`gate_power_${n}`);
+          if (box) box.checked = (message.gate_power >> n & 1) === 1;
+        }
+      }
     }
   };
   socket.onclose = () => {
+    Banner.disconnected();
     $('status').textContent = 'disconnected from the scope, retrying…';
     $('status').classList.add('error');
     setTimeout(connect, 1000);
@@ -845,4 +856,5 @@ document.querySelector('nav a[href="collect.html"]').addEventListener('click', e
 // the board's watchdog: a run (started here or on the waveform page) goes on only while a page
 // is there; this one says so every second
 setInterval(() => send({type: 'heartbeat'}), 1000);
+Banner.useSocket(send);
 connect();

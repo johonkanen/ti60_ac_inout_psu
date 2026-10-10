@@ -522,6 +522,101 @@ static void send_hello(int sock)
 	send_text(sock, message);
 }
 
+/*
+ * The supply's state, as the pages' banner shows it: off (the gate driver supplies off: a trip
+ * latched then means nothing, the current modulators they power read nonsense), tripped (the
+ * DHB protection's trip, until cleared), running (the DHB, the output bridge, armed or running,
+ * or the input boost), idle (the supplies on, nothing switching).
+ */
+static const char *supply_state(void)
+{
+	uint32_t boost[2];
+
+	capture_boost_state(boost);
+	if (capture_gate_power_on() == 0) {
+		return "off";
+	}
+	if (capture_dhb_trips() != 0) {
+		return "tripped";
+	}
+	if ((capture_dhb_status() & 3) != 0 || (capture_output_status() & 5) != 0 || (boost[0] & 1) != 0) {
+		return "running";
+	}
+	return "idle";
+}
+
+/* stop: everything switching stopped, the gate driver supplies left on (the output's closed
+ * loop brought down to 0 V first; the DHB holds on while it is) */
+static void supply_stop(void)
+{
+	capture_output_stop();
+	capture_boost_stop();
+	if ((capture_output_status() & 5) == 0) {
+		capture_dhb_stop();
+	}
+}
+
+/* run: the DHB's precharge, then the output bridge in closed loop on the loaded waveform until
+ * stop (or its end); none loaded: 0 V held. Only from idle: the supplies on, no trip. */
+#define SUPPLY_DHB_RUN_MS 100
+static void supply_run(void)
+{
+	const char *state = supply_state();
+
+	if (strcmp(state, "idle") != 0 || capture_gate_power_on() != 0x3f) {
+		LOG_WRN("run refused: the supply is %s%s", state,
+			capture_gate_power_on() != 0x3f ? ", not every gate driver supply on" : "");
+		return;
+	}
+	if (waveform_loaded == 0) {
+		static const float zero[1] = {0.0f};
+		static const uint32_t hold[1] = {40};
+
+		capture_waveform_load(zero, hold, 1, 0);
+		waveform_loaded = 1;
+	}
+	LOG_WRN("run: the DHB, then the output in closed loop on the waveform until stopped");
+	capture_output_waveform_test(0);
+	capture_dhb_test(75000, 40, 124, SUPPLY_DHB_RUN_MS * 150, true);
+}
+
+/* power: the gate driver supplies all on (the FPGA brings them up one at a time), or off: a
+ * stop first, the supplies off 100 ms later, once the output is brought down */
+static void supply_power_off(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	config.gate_power = 0;
+	capture_set_gate_power(0);
+}
+static K_WORK_DELAYABLE_DEFINE(power_off_work, supply_power_off);
+
+/* after power on: the trip latched while the supplies were off (their current modulators'
+ * nonsense) cleared, once all are on and the readings real */
+static void supply_power_settled(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	if (capture_gate_power_on() == 0x3f) {
+		capture_dhb_clear_trips();
+		LOG_INF("power on: the supplies up, the trip cleared");
+	}
+}
+static K_WORK_DELAYABLE_DEFINE(power_settled_work, supply_power_settled);
+
+static void supply_power(bool on)
+{
+	if (on) {
+		LOG_WRN("power on: the gate driver supplies");
+		k_work_cancel_delayable(&power_off_work);
+		config.gate_power = 0x3f;
+		capture_set_gate_power(config.gate_power);
+		k_work_reschedule(&power_settled_work, K_MSEC(500));
+	} else {
+		LOG_WRN("power off: stop, then the gate driver supplies off");
+		supply_stop();
+		k_work_reschedule(&power_off_work, K_MSEC(100));
+	}
+}
+
 /* when the status last went out: an idle board sends it every STATUS_IDLE_MS anyway, so the
  * pages follow a run, the DC links and the waveform player without asking */
 #define STATUS_IDLE_MS 500
@@ -570,7 +665,8 @@ static void broadcast_status(void)
 		 "\"output\":[%u,%u],\"observer\":[%.3f,%.2f,%.2f,%.3f,%u],"
 		 "\"control\":[%.3f,%.2f,%.2f,%.2f,%u,%u],\"waveform\":[%u,%u],"
 		 "\"boost\":[%u,%.3f,%.4f,%.3f,%.3f,%.3f,%.3f,%.2f,%u],"
-		 "\"touch\":[%u,%u,%u,%u,%d,%d,%u,%u]}",
+		 "\"touch\":[%u,%u,%u,%u,%d,%d,%u,%u],"
+		 "\"supply\":\"%s\",\"gate_power\":%u}",
 		 status.state, status.captures, status.forced ? "true" : "false",
 		 status.running ? "true" : "false", stream_lost(), adc.rates[0], adc.rates[1],
 		 adc.sdm_rate, capture_gate_power_on(), copy_us, send_us, capture_dhb_status(),
@@ -587,7 +683,7 @@ static void broadcast_status(void)
 		 capture_boost_value(3), capture_boost_value(4), capture_boost_value(5),
 		 capture_boost_value(6), boost_state[1], touch_state[0], touch_state[1],
 		 touch_state[2], touch_state[3], touch_x, touch_y, panel_calibrating(),
-		 capture_touch_presses());
+		 capture_touch_presses(), supply_state(), config.gate_power);
 	k_mutex_unlock(&scope_lock);
 
 	for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -799,6 +895,16 @@ static void handle_command(const char *message)
 		}
 	} else if (json_string_is(message, "type", "output_stop")) {
 		capture_output_stop();
+	} else if (json_string_is(message, "type", "supply_power")) {
+		double on = 0;
+
+		json_number(message, "on", &on);
+		supply_power(on != 0);
+	} else if (json_string_is(message, "type", "supply_run")) {
+		supply_run();
+	} else if (json_string_is(message, "type", "supply_stop")) {
+		LOG_WRN("stop");
+		supply_stop();
 	} else if (json_string_is(message, "type", "dhb_clear_trip")) {
 		capture_dhb_clear_trips();
 	} else if (json_string_is(message, "type", "dhb_stop")) {

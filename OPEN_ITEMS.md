@@ -15,7 +15,11 @@ item when it is done; the commit that does it says so.
   1. check that iac_in's period mean matches C dv/dt with a short 1 MS/s capture at low duty;
   2. add a peak current cutoff on the raw sigma-delta current, and start with d_max about 0.05;
   3. move the control to the microprogram processor with observers, as the output voltage
-     control is, to deal with the measurement noise. Keep the current loop on the bridge's DC
+     control is, to deal with the measurement noise (decided: together, once the capacitor is
+     in). Sharing the output's core: it is ~11 % busy (observer + control 270 clocks of the
+     period's 3125); the boost's step ~150-250 clocks; 1/vdc by a Newton step a period instead
+     of the lut_divider; program RAM to 1024 words; the PWM and every stop stay in logic;
+     ~3k logic cells freed. Keep the current loop on the bridge's DC
      side current, iac_in * (vac_in / vdc_in), and the voltage loop slow (well below 100 Hz) so
      an AC input's 100 Hz ripple needs no new voltage controller.
 - iac_in's sign: a 1 MS/s capture shows the boost's current pulses as positive counts (the

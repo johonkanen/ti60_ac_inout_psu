@@ -139,3 +139,40 @@ label.check.inline { display: inline-flex; margin: 0 0 0 8px; }
 label.inline { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
 label.inline input { display: inline-block; width: 5.5em; margin: 0; }
 #bode_plots > div { margin-top: 8px; }
+
+/* the supply's banner (banner.js), on top of every page */
+#supply_banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+#supply_banner button { min-width: 90px; font-weight: 600; }
+#supply_banner button:disabled { opacity: 0.4; cursor: default; border-color: var(--border); }
+#supply_banner .supply_run:not(:disabled) { background: #1f7a3a; border-color: #1f7a3a; color: #fff; }
+#supply_banner .supply_stop { background: #b3261e; border-color: #b3261e; color: #fff; }
+#supply_banner .supply_clear { background: #8a5a00; border-color: #8a5a00; color: #fff; }
+.supply_state {
+  min-width: 110px;
+  padding: 4px 12px;
+  border-radius: 14px;
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 13px;
+  background: #2c333d;
+  color: var(--muted);
+}
+.supply_state.running { background: #1f7a3a; color: #fff; }
+.supply_state.idle { background: #8a6d00; color: #fff; }
+.supply_state.off { background: #2c333d; color: var(--text); }
+.supply_state.tripped { background: #b3261e; color: #fff; animation: supply_blink 1s step-start infinite; }
+@keyframes supply_blink { 50% { opacity: 0.6; } }
+.supply_detail { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
