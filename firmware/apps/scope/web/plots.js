@@ -51,6 +51,11 @@ const DEFAULT_SCALING = {
 };
 const COUNTS = {unit: 'counts', zero: 0, perUnit: 1};
 
+// a source's plain name (signals.js, where the page has it), else the board's
+function plainName(name) {
+  return typeof Signals !== 'undefined' && name ? Signals.info(name).label : name;
+}
+
 const units = {
   scaling: {},    // by source name, as saved on the board
 
@@ -270,7 +275,7 @@ class PlotArea {
     heading.className = 'plot_title';
     heading.innerHTML = channels.map(c =>
       `<span data-channel="${c}" class="${layout.hidden[c] ? 'off' : ''}" style="color:${COLORS[c]}" ` +
-      `title="click to hide or show">CH${c + 1} ${this.o.sourceOf(c)} [${this.unitOf(c)}]</span>`).join('') +
+      `title="${this.o.sourceOf(c)}: click to hide or show">CH${c + 1} ${plainName(this.o.sourceOf(c))} [${this.unitOf(c)}]</span>`).join('') +
       (this.o.bands ? `<label class="range">show <select class="show_mode">
         <option value="band">avg + min/max</option>
         <option value="sample"${mode === 'sample' ? ' selected' : ''}>instantaneous</option></select></label>` : '') +

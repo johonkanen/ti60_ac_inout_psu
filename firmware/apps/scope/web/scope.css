@@ -177,3 +177,9 @@ label.inline input { display: inline-block; width: 5.5em; margin: 0; }
 @keyframes supply_blink { 50% { opacity: 0.6; } }
 .supply_detail { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
 .supply_state.starting { background: #2f6f9f; color: #fff; }
+
+/* the views (signals.js) above the channels */
+.views { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.views .buttons { gap: 4px; }
+.views button.forget { padding: 1px 5px; margin-left: -4px; color: var(--muted); }
+#channels select { max-width: 100%; }

@@ -105,7 +105,7 @@ function buildControls() {
     row.className = 'channel with_plot';
     row.innerHTML = `<input type="checkbox" id="show${i}" ${area.visible[i] ? 'checked' : ''} title="show CH${i + 1}">
       <span class="swatch" style="background:${COLORS[i]}" title="CH${i + 1}"></span>
-      <select id="source${i}">${sourceNames.map((n, s) => `<option value="${s}">CH${i + 1}: ${n}</option>`).join('')}</select>
+      <select id="source${i}" title="CH${i + 1}">${Signals.optionsHtml(sourceNames)}</select>
       ${PlotArea.plotSelect(i)}`;
     channels.appendChild(row);
     row.querySelector(`#show${i}`).addEventListener('change', e => {
@@ -117,6 +117,28 @@ function buildControls() {
   $('rate').addEventListener('change', settingsChanged);
   $('window').addEventListener('change', () => { view.dirty = true; });
   area.bindControls();
+  // the views (signals.js): their channels and plots; the rate is this page's own
+  Signals.viewBar($('views'), {
+    apply: v => {
+      const list = v.channels.filter(([name]) => sourceNames.includes(name)).slice(0, CHANNELS);
+      if (!list.length) return;
+      list.forEach(([name, plot], c) => {
+        $(`source${c}`).value = sourceNames.indexOf(name);
+        area.layout.plotOf[c] = Math.min(Math.max(1, plot || 1), 4);
+      });
+      for (let c = 0; c < CHANNELS; c++) {
+        area.visible[c] = c < list.length;
+        $(`show${c}`).checked = area.visible[c];
+        area.layout.hidden[c] = false;
+      }
+      if (area.layout.count !== 'each') area.layout.count = String(Math.max(...list.map(([, plot]) => plot || 1)));
+      area.save();
+      area.showControls();
+      settingsChanged();
+    },
+    current: () => ({channels: Array.from({length: CHANNELS}, (_, c) => c)
+      .filter(c => area.visible[c]).map(c => [sourceNames[+$(`source${c}`).value], area.layout.plotOf[c] || 1])}),
+  });
   $('start').onclick = start;
   $('stop').onclick = stop;
   $('export').onclick = exportCsv;

@@ -65,7 +65,7 @@ function buildControls() {
     row.className = 'channel with_plot';
     row.innerHTML = `<input type="checkbox" id="show${i}" ${area.visible[i] ? 'checked' : ''} title="show CH${i + 1}">
       <span class="swatch" style="background:${COLORS[i]}" title="CH${i + 1}"></span>
-      <select id="source${i}">${sourceNames.map((n, s) => `<option value="${s}">CH${i + 1}: ${n}</option>`).join('')}</select>
+      <select id="source${i}" title="CH${i + 1}">${Signals.optionsHtml(sourceNames)}</select>
       ${PlotArea.plotSelect(i)}`;
     channels.appendChild(row);
     row.querySelector(`#show${i}`).addEventListener('change', e => {
@@ -75,6 +75,8 @@ function buildControls() {
     row.querySelector(`#source${i}`).addEventListener('change', () => { sendConfig(); replot(); });
   }
   area.bindControls();
+  Signals.viewBar($('views'), {apply: applyView, current: currentView,
+    extra: [{label: 'ADC channels', title: "the ADC section's checked signals, a mains view", onclick: () => adcPreset()}]});
 
   for (const id of ['rate', 'length', 'mode', 'trigger_channel', 'trigger_edge', 'trigger_level', 'generator_hz']) {
     $(id).addEventListener('change', () => sendConfig());
@@ -344,6 +346,50 @@ function adcPreset() {
   $('trigger_level').value = 0;   // in the channel's unit, so 0 V
   sendConfig();
   replot();
+}
+
+// a view (signals.js): its signals on CH1.. in order with their plots, the rest hidden; its
+// rate, length, mode and trigger when it has them
+function applyView(view) {
+  const list = view.channels.filter(([name]) => sourceNames.includes(name)).slice(0, CHANNELS);
+  if (!list.length) return;
+  list.forEach(([name, plot], c) => {
+    $(`source${c}`).value = sourceNames.indexOf(name);
+    area.layout.plotOf[c] = Math.min(Math.max(1, plot || 1), 4);
+  });
+  for (let c = 0; c < CHANNELS; c++) {
+    area.visible[c] = c < list.length;
+    $(`show${c}`).checked = area.visible[c];
+    area.layout.hidden[c] = false;
+  }
+  if (area.layout.count !== 'each') area.layout.count = String(Math.max(...list.map(([, plot]) => plot || 1)));
+  area.save();
+  area.showControls();
+  if (view.divider != null && DIVIDERS.includes(view.divider)) $('rate').value = view.divider;
+  if (view.length && LENGTHS.includes(view.length)) $('length').value = view.length;
+  if (view.mode) $('mode').value = view.mode;
+  if (view.trigger) {
+    const t = list.findIndex(([name]) => name === view.trigger.source);
+    if (t >= 0) {
+      $('trigger_channel').value = t;
+      $('trigger_edge').value = view.trigger.edge || 0;
+      $('trigger_level').value = view.trigger.level || 0;
+    }
+  }
+  sendConfig();
+  replot();
+}
+
+// the page's channels as a view: the shown ones in order, the rate, length, mode and trigger
+function currentView() {
+  const shown = [];
+  for (let c = 0; c < CHANNELS; c++) {
+    if (area.visible[c]) shown.push([sourceNames[+$(`source${c}`).value], area.layout.plotOf[c] || 1]);
+  }
+  const t = +$('trigger_channel').value;
+  return {channels: shown, divider: +$('rate').value, length: +$('length').value, mode: $('mode').value,
+          trigger: {source: sourceNames[+$(`source${t}`).value], edge: +$('trigger_edge').value,
+                    level: +$('trigger_level').value}};
 }
 
 function sourceOf(c) {
