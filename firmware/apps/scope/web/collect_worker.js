@@ -1,8 +1,8 @@
 // The data collection's stream, off the page's thread: the WebSocket to the board's stream
 // (port 5004) and every sample made into 1 ms points (each channel's minimum, maximum, mean
 // and first sample) here, so the page's drawing, its garbage collection or a busy tab cannot
-// hold up the reading: the board's ring is short (168 ms at 3.9 MS/s), the browser stops
-// reading the socket while messages wait for a busy thread.
+// hold up the reading: the board's ring is short (half a second at 3.9 MS/s), the browser
+// stops reading the socket while messages wait for a busy thread.
 //
 // From the page: {type: 'start', url, rate}, {type: 'stop'}, {type: 'raw', on} (the samples
 // as they come too, for a raw recording).

@@ -31,16 +31,21 @@
 	};
 
 	/*
-	 * The HyperRAM (W959D8NFYA, 64 MB) is two 32 MB dies, and the controller takes the
-	 * address as it is: 0x01000000..0x01ffffff is the first die's upper half,
-	 * 0x02000000..0x03ffffff the second die. The second die does not work reliably here
-	 * (2026-10-11: the Ethernet DMA's reads from it came 2 bytes off now and then, and the
-	 * board hung or crashed within minutes; the read capture's calibration is the first
-	 * suspect): the RAM stops at the first die's end, which no burst may cross either.
+	 * The HyperRAM (W959D8NFYA, 64 MB) is two 32 MB dies; the controller (the FPGA's
+	 * hyperram_axi) takes the address as it is: 0x01000000..0x01ffffff is the first die's
+	 * upper half, 0x02000000..0x03ffffff the second die, and splits bursts at 1 KB, so none
+	 * crosses between them. The image and the RAM are on the first die; the second is the
+	 * scope stream's ring, but for its last 128 bytes (0x03ffff80..), where the controller
+	 * writes its calibration pattern at power up. (Efinix's controller, before it, corrupted
+	 * DMA transfers on the second die.)
 	 */
 	ram0: memory@1200000 {
 		device_type = "memory";
 		reg = <0x01200000 DT_SIZE_M(14)>;
+	};
+
+	stream_ram: memory@2000000 {
+		reg = <0x02000000 (DT_SIZE_M(32) - 128)>;
 	};
 };
 

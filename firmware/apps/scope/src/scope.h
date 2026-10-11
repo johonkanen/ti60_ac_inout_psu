@@ -119,7 +119,7 @@ void scope_settings_load(void);
 #define SCOPE_STREAM_PORT            5004
 #define SCOPE_STREAM_SEGMENT_RECORDS 91     /* 1456 bytes: with a frame header, one TCP segment */
 #define SCOPE_STREAM_SEGMENTS        720    /* a message: 65520 records, 1 MB */
-#define SCOPE_STREAM_RING_SEGMENTS   (10 * SCOPE_STREAM_SEGMENTS)  /* 10 MB, 168 ms at 3.9 MS/s */
+#define SCOPE_STREAM_RING_SEGMENTS   (32 * SCOPE_STREAM_SEGMENTS)  /* 32 MB, 537 ms at 3.9 MS/s */
 
 int scope_stream_init(void);
 bool scope_stream_active(void);
@@ -129,6 +129,7 @@ uint32_t scope_stream_lost(void);
 const int16_t *capture_stream_start(const struct scope_config *config);
 void capture_stream_stop(void);
 uint32_t capture_stream_written(void);  /* records in the ring since the start, 32 bits */
+bool capture_stream_ram_usable(void);   /* the FPGA's HyperRAM controller serves the ring's die */
 uint32_t capture_overflows(void);       /* records the DMA did not take in time */
 
 /* the control board's ADCs (ad_subsystem.vhd): the mux positions they convert, and their

@@ -4,15 +4,15 @@
  *
  * A client connecting starts a continuous capture with the settings the browser has made
  * (sample rate, the eight sources) into the stream ring; segment i of the stream is records
- * 91*i..91*i+90 of the capture, ring segment i mod 7200 (10 MB), and each WebSocket message
- * is 720 segments: 65520 records of eight int16 channels, sample-major, 1 MB. A segment goes out
- * once the FPGA's DMA has taken MARGIN_RECORDS records past it: the DMA counts a record when
- * it takes it into its 2 KB buffer (128 records) and writes it to the memory later, whole
- * 16 record bursts as the memory lets it. Sent sooner, a burst still holds the previous lap.
+ * 91*i..91*i+90 of the capture, ring segment i mod 23040 (32 MB, the HyperRAM's second
+ * die), and each WebSocket message is 720 segments: 65520 records of eight int16 channels,
+ * sample-major, 1 MB. A segment goes out once the FPGA's DMA has taken MARGIN_RECORDS
+ * records past it: the DMA counts a record when it takes it into its 2 KB buffer (128
+ * records) and writes it to the memory later, whole 16 record bursts as the memory lets it.
+ * Sent sooner, a burst still holds the previous lap.
  *
  * The ring is that large for slack: the client may fall up to a ring behind the capture
- * (168 ms at 3.9 MS/s, 0.6 s at 1 MS/s; what the first HyperRAM die has room for, see the
- * board's devicetree) and catch up, a slow acknowledgement or a
+ * (537 ms at 3.9 MS/s, two seconds at 1 MS/s) and catch up, a slow acknowledgement or a
  * pause of the PC's being no loss.
  *
  * The sample rate decides whether the link keeps up, 16 bytes a sample: about 62 MB/s
@@ -71,6 +71,11 @@ static void connected(void *user_data)
 {
 	struct scope_config config;
 
+	if (!capture_stream_ram_usable()) {
+		LOG_ERR("no stream on this FPGA image: its HyperRAM controller corrupts the ring's die");
+		tcp_stream_close();
+		return;
+	}
 	atomic_set(&active, 1);
 	scope_get_config(&config);
 	written = 0;

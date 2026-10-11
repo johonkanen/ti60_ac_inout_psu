@@ -99,19 +99,6 @@ entity hyperram_axi is
         -- transactions started (low 16 bits), 47:32 write beats buffered, 63:48 read beats
         -- issued and not yet out
         debug              : out std_logic_vector(63 downto 0);
-        -- more: 31:0 words expected and packed (low 16 bits each), 63:32 beats issued and
-        -- stored (low 16 bits each); 127:64 the first time the words packed differed from those
-        -- expected at a transaction's start: the transaction before it, 73:64 its words, 83:74
-        -- the capture's count when it finished, 84 a write, 85 timed out, 93:86 the difference
-        -- (packed less expected, signed), 120:96 its word address, 127:121 transactions; 159:128
-        -- the first beat stored that no read issued: the transactions counter, 191:160 the words
-        -- expected and packed then (low 16 bits each)
-        debug2             : out std_logic_vector(191 downto 0);
-        -- full counts: 31:0 words expected, 63:32 words packed, 95:64 padding words still to
-        -- come, 127:96 words captured, 159:128 padding words since the calibration, 191:160
-        -- words packed and 223:192 the words asked for at the first of them, 255:224 words
-        -- captured during writes
-        debug3             : out std_logic_vector(255 downto 0);
 
         phase_shift        : out pll_phase_shift_record;
         phase_shift_output : in natural range 0 to 4 := 3;   -- PLL output of the read clock
@@ -192,8 +179,8 @@ architecture rtl of hyperram_axi is
     signal r_stored : unsigned(15 downto 0) := (others => '0');      -- beats into the buffer, ever
     signal r_taken  : unsigned(15 downto 0) := (others => '0');      -- beats read out of it, ever
 
-    -- words of reads expected (the core) and put into beats (the packer), for the debug
-    -- registers; after a timed out read, the words it lacks are padded with zeros: the core
+    -- words of reads expected (the core) and put into beats (the packer), for the
+    -- simulation's check; after a timed out read, the words it lacks are padded with zeros: the core
     -- asks for them (pad_start, pad_request), the packer counts them out
     constant word_count_start : unsigned(31 downto 0) := to_unsigned(g_word_count_start, 32);
     signal words_expected : unsigned(31 downto 0) := word_count_start;
@@ -217,6 +204,11 @@ architecture rtl of hyperram_axi is
     signal cal_ok        : boolean := true;
     signal cal_beat      : natural range 0 to 2*pattern_beats := 0;
     signal pass_map      : std_logic_vector(15 downto 0) := (others => '0');
+    -- the window search, a setting a clock
+    signal search_index  : natural range 0 to 16 := 0;
+    signal run_start, best_start   : natural range 0 to 7 := 0;
+    signal run_length, best_length : natural range 0 to 8 := 0;
+    signal best_lo_first : boolean := false;
     signal calibrated    : boolean := false;
     signal cal_failed    : boolean := false;
     signal read_phase    : natural range 0 to 7 := 0;
@@ -257,16 +249,6 @@ architecture rtl of hyperram_axi is
     signal timeouts      : unsigned(15 downto 0) := (others => '0');
     signal transactions  : unsigned(15 downto 0) := (others => '0');
     signal waits_for_data, waits_for_room : boolean := false;
-    signal mismatch      : boolean := false;
-    signal words_captured : unsigned(31 downto 0) := (others => '0');
-    signal pad_words      : unsigned(31 downto 0) := (others => '0');
-    signal first_pad      : std_logic_vector(63 downto 0) := (others => '0');
-    signal write_captures : unsigned(31 downto 0) := (others => '0');
-    signal mismatch_snapshot : std_logic_vector(63 downto 0) := (others => '0');
-    signal finished_count : natural range 0 to 4*max_beats := 0;    -- the capture's count at the last finish
-    signal last_address   : unsigned(22 downto 0) := (others => '0');
-    signal anomaly       : boolean := false;
-    signal anomaly_snapshot : std_logic_vector(63 downto 0) := (others => '0');
 
     constant data_cycle  : natural := 2*g_latency + 3;
 
@@ -336,12 +318,6 @@ begin
     status <= x"0" & to_std(lo_first) & std_logic_vector(to_unsigned(read_phase, 3))
               & pass_map(15 downto 8) & pass_map(7 downto 0) & "000000" & to_std(cal_failed) & to_std(calibrated);
     read_timeouts <= timeouts;
-    debug3 <= std_logic_vector(write_captures) & first_pad & std_logic_vector(pad_words)
-              & std_logic_vector(words_captured) & std_logic_vector(to_unsigned(pad_remaining, 32))
-              & std_logic_vector(words_packed) & std_logic_vector(words_expected);
-    debug2 <= anomaly_snapshot & mismatch_snapshot
-              & std_logic_vector(r_issued) & std_logic_vector(r_stored)
-              & std_logic_vector(words_expected(15 downto 0)) & std_logic_vector(words_packed(15 downto 0));
     debug <= std_logic_vector(r_issued - r_taken) & std_logic_vector(w_written - w_consumed)
              & std_logic_vector(transactions) & "00" & to_std(waits_for_room) & to_std(waits_for_data)
              & to_std(next_t.write)
@@ -431,25 +407,12 @@ begin
         variable command    : command_record;
         variable word       : natural range 0 to 3;
         variable beat       : std_logic_vector(71 downto 0);
-        variable best_start, best_length, run_start, run_length : natural;
-        variable best_lo_first : boolean;
         variable start_one  : boolean;
 
         -- starts a transaction of 'beats' beats at 'address'
         procedure start(write, calibration : boolean; addr : unsigned(22 downto 0); count : natural;
                         id : std_logic_vector(7 downto 0); last : boolean) is
         begin
-            -- the words of the reads so far are all in, unless padding is still to come
-            if not mismatch and calibrated and words_packed /= words_expected and pad_remaining = 0 then
-                mismatch <= true;
-                mismatch_snapshot <= std_logic_vector(transactions(6 downto 0))
-                    & std_logic_vector(last_address & "00")
-                    & "00" & std_logic_vector(resize(signed(words_packed - words_expected), 8))
-                    & to_std(timed_out) & to_std(is_write)
-                    & std_logic_vector(to_unsigned(finished_count, 10))
-                    & std_logic_vector(to_unsigned(t_words mod 1024, 10));
-            end if;
-            last_address   <= addr;
             is_write       <= write;
             is_calibration <= calibration;
             t_beats        <= count;
@@ -605,35 +568,44 @@ begin
                                     calibration_state <= done;
                                 end if;
                             WHEN done =>
-                                -- the middle of the widest window of passing phases
-                                best_start := 0; best_length := 0; best_lo_first := g_default_lo_first;
-                                for order in 0 to 1 loop
-                                    run_length := 0; run_start := 0;
-                                    for p in 0 to 7 loop
-                                        if pass_map(8*order + p) = '1' then
-                                            if run_length = 0 then
-                                                run_start := p;
-                                            end if;
-                                            run_length := run_length + 1;
-                                            if run_length > best_length then
-                                                best_length   := run_length;
-                                                best_start    := run_start;
-                                                best_lo_first := order = 1;
+                                -- the middle of the widest window of passing phases, a setting a
+                                -- clock (search_index), runs within each order of the halves
+                                if search_index < 16 then
+                                    if search_index mod 8 = 0 then
+                                        run_length <= 0;
+                                    end if;
+                                    if pass_map(search_index) = '1' then
+                                        if run_length = 0 or search_index mod 8 = 0 then
+                                            run_start  <= search_index mod 8;
+                                            run_length <= 1;
+                                            if best_length = 0 then
+                                                best_start    <= search_index mod 8;
+                                                best_length   <= 1;
+                                                best_lo_first <= search_index >= 8;
                                             end if;
                                         else
-                                            run_length := 0;
+                                            run_length <= run_length + 1;
+                                            if run_length + 1 > best_length then
+                                                best_start    <= run_start;
+                                                best_length   <= run_length + 1;
+                                                best_lo_first <= search_index >= 8;
+                                            end if;
                                         end if;
-                                    end loop;
-                                end loop;
-                                if best_length = 0 then
-                                    cal_failed <= true;
-                                    read_phase <= g_default_phase;
-                                    lo_first   <= g_default_lo_first;
+                                    else
+                                        run_length <= 0;
+                                    end if;
+                                    search_index <= search_index + 1;
                                 else
-                                    read_phase <= best_start + (best_length - 1) / 2;
-                                    lo_first   <= best_lo_first;
+                                    if best_length = 0 then
+                                        cal_failed <= true;
+                                        read_phase <= g_default_phase;
+                                        lo_first   <= g_default_lo_first;
+                                    else
+                                        read_phase <= best_start + (best_length - 1) / 2;
+                                        lo_first   <= best_lo_first;
+                                    end if;
+                                    calibrated <= true;
                                 end if;
-                                calibrated <= true;
                         end CASE;
 
                     else
@@ -735,7 +707,6 @@ begin
                     dq_oe_r   <= '0';
                     rwds_oe_r <= '0';
                     capture_enable <= false;
-                    finished_count <= capture_count;
                     recovery_count <= 0;
                     if is_write then
                         if not is_calibration then
@@ -780,6 +751,9 @@ begin
                 calibration_state <= write_die_0;
                 setting           <= 0;
                 pass_map          <= (others => '0');
+                search_index      <= 0;
+                best_length       <= 0;
+                run_length        <= 0;
                 command_head      <= (others => '0');
                 head_progress     <= false;
                 prepared          <= false;
@@ -847,10 +821,6 @@ begin
                 word_data     <= word;
                 word_valid    <= true;
                 capture_count <= capture_count + 1;
-                words_captured <= words_captured + 1;
-                if is_write then
-                    write_captures <= write_captures + 1;
-                end if;
             end if;
         end if;
     end process;
@@ -872,12 +842,6 @@ begin
                 word     := (others => '0');
                 has_word := true;
                 pad_remaining <= pad_remaining - 1;
-                if calibrated then
-                    if pad_words = 0 then
-                        first_pad <= std_logic_vector(to_unsigned(pad_remaining, 32)) & std_logic_vector(words_packed);
-                    end if;
-                    pad_words <= pad_words + 1;
-                end if;
             end if;
 
             -- a timed out read's missing words, asked for once its words are all in
@@ -899,12 +863,6 @@ begin
                     read_ram_a_in.data            <= word(7 downto 0) & word(15 downto 8) & packed(47 downto 0);
                     read_ram_a_in.write_requested <= '1';
                     r_stored <= r_stored + 1;
-                    -- a beat no read asked for
-                    if not anomaly and signed(r_stored - r_issued) >= 0 then
-                        anomaly <= true;
-                        anomaly_snapshot <= std_logic_vector(words_expected(15 downto 0)) & std_logic_vector(words_packed(15 downto 0))
-                                            & x"0000" & std_logic_vector(transactions);
-                    end if;
                 else
                     packed_words <= packed_words + 1;
                 end if;

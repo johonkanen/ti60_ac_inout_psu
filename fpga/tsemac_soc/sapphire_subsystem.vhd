@@ -103,8 +103,6 @@ entity sapphire_subsystem is
         ;hyperram_status   : out std_logic_vector(31 downto 0)
         ;hyperram_timeouts : out std_logic_vector(15 downto 0)
         ;hyperram_debug    : out std_logic_vector(63 downto 0)
-        ;hyperram_debug2   : out std_logic_vector(191 downto 0)
-        ;hyperram_debug3   : out std_logic_vector(255 downto 0)
         ;ethernet_speed   : out std_logic_vector(2 downto 0)
         ;ethernet_dma_interrupts : out std_logic_vector(1 downto 0)
         -- the TSEMAC control registers' PHY reset bit: no pin on this board, the top level
@@ -667,8 +665,6 @@ begin
         ,status             => hyperram_status
         ,read_timeouts      => read_timeouts
         ,debug              => hyperram_debug
-        ,debug2             => hyperram_debug2
-        ,debug3             => hyperram_debug3
         ,phase_shift        => phase_shift
         ,phase_shift_output => 3                    -- ram_clk_cal is the PLL's output 3
         ,fpga_out           => hyperram_out

@@ -88,8 +88,12 @@ BUILD_ASSERT(SCOPE_MAX_LENGTH + PAD_RECORDS <= RING_RECORDS, "a capture fits the
 static int16_t ring[RING_RECORDS][SCOPE_CHANNELS] __aligned(DMA_BURST_BYTES) __noinit;
 
 #define STREAM_RECORDS (SCOPE_STREAM_RING_SEGMENTS * SCOPE_STREAM_SEGMENT_RECORDS)
-static int16_t stream_ring[STREAM_RECORDS][SCOPE_CHANNELS] __aligned(DMA_BURST_BYTES) __noinit;
-BUILD_ASSERT(sizeof(stream_ring) % DMA_BURST_BYTES == 0, "the stream ring is whole bursts");
+/* the stream's ring: the HyperRAM's second die, its own (see the board's devicetree) */
+#define STREAM_RAM DT_NODELABEL(stream_ram)
+#define stream_ring ((int16_t (*)[SCOPE_CHANNELS])DT_REG_ADDR(STREAM_RAM))
+#define STREAM_RING_BYTES (STREAM_RECORDS * SCOPE_CHANNELS * sizeof(int16_t))
+BUILD_ASSERT(STREAM_RING_BYTES <= DT_REG_SIZE(STREAM_RAM), "the stream ring fits the second die");
+BUILD_ASSERT(STREAM_RING_BYTES % DMA_BURST_BYTES == 0, "the stream ring is whole bursts");
 
 const char *scope_source_names[SCOPE_SOURCES];
 static char names[SCOPE_SOURCES][17];
@@ -185,7 +189,7 @@ const int16_t *capture_stream_start(const struct scope_config *config)
 	k_mutex_lock(&hw_lock, K_FOREVER);
 	streaming = true;
 	reg_write(REG_COMMAND, COMMAND_STOP);
-	dma_restart(stream_ring, sizeof(stream_ring));
+	dma_restart(stream_ring, STREAM_RING_BYTES);
 	reg_write(REG_DIVIDER, config->divider);
 	reg_write(REG_TRIGGER, 0);              /* no trigger: from the start */
 	reg_write(REG_PRE, 0);
@@ -206,6 +210,14 @@ void capture_stream_stop(void)
 	armed = false;
 	streaming = false;
 	k_mutex_unlock(&hw_lock);
+}
+
+/* register 1336: hyperram_axi's calibration status, bit 0 calibrated. Only an image with our
+ * HyperRAM controller has it (the golden image in flash still has Efinix's, which corrupted
+ * DMA transfers on the second die, where the ring is) */
+bool capture_stream_ram_usable(void)
+{
+	return (sys_read32(REGISTERS + 4 * 1336) & 1) != 0;
 }
 
 uint32_t capture_stream_written(void)
