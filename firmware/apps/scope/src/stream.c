@@ -21,6 +21,7 @@
  * gone: the connection is reset rather than sent what the ring holds now, and the overrun
  * counted (scope_stream_lost(), in the scope's status).
  */
+#include <stdlib.h>
 #include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -49,6 +50,48 @@ static atomic_t lost;
 static atomic_t active;
 static const char *last_end = "none";      /* why the last stream ended (scope_stream_end()) */
 
+/*
+ * A capture download (scope_download_offer()): a triggered capture longer than /ws carries,
+ * sent from the capture ring on this port as one message (ws://<board>:5004/capture?id=<n>),
+ * its segments of 91 records from the capture's start on, the last one filled up with the
+ * ring's next records (the page takes the capture's length). The one segment that may cross
+ * the ring's end is copied out first. The scope arms again once it is acknowledged, or when
+ * it gives up waiting (the connection is then closed at the next segment).
+ */
+enum mode { MODE_NONE, MODE_STREAM, MODE_DOWNLOAD };
+static enum mode mode;
+
+static struct {
+	atomic_t valid;
+	uint32_t id;
+	uint32_t start;
+	uint32_t length;
+} offer;
+static K_SEM_DEFINE(downloaded, 0, 1);
+static uint32_t download_segments;
+static bool download_done;
+static int64_t bounce_index = -1;
+static uint8_t bounce[SEGMENT_RECORDS * RECORD_BYTES] __aligned(64);
+
+void scope_download_offer(uint32_t id, uint32_t start, uint32_t length)
+{
+	k_sem_reset(&downloaded);
+	offer.id = id;
+	offer.start = start;
+	offer.length = length;
+	atomic_set(&offer.valid, 1);
+}
+
+bool scope_download_wait(int32_t ms)
+{
+	return k_sem_take(&downloaded, K_MSEC(ms)) == 0;
+}
+
+void scope_download_withdraw(void)
+{
+	atomic_set(&offer.valid, 0);
+}
+
 static void report(struct k_work *work);
 static K_WORK_DELAYABLE_DEFINE(report_work, report);
 
@@ -68,15 +111,37 @@ static void update_written(void)
 	written_low = now;
 }
 
-static void connected(void *user_data)
+static void connected(const char *path, void *user_data)
 {
 	struct scope_config config;
 
+	mode = MODE_NONE;
 	if (!capture_stream_ram_usable()) {
 		LOG_ERR("no stream on this FPGA image: its HyperRAM controller corrupts the ring's die");
 		tcp_stream_close();
 		return;
 	}
+	if (strncmp(path, "/capture", 8) == 0) {
+		const char *id = strstr(path, "id=");
+
+		if (!atomic_get(&offer.valid) || id == NULL || strtoul(id + 3, NULL, 10) != offer.id) {
+			LOG_WRN("no capture to download for %s", path);
+			tcp_stream_close();
+			return;
+		}
+		mode = MODE_DOWNLOAD;
+		download_segments = DIV_ROUND_UP(offer.length, SEGMENT_RECORDS);
+		download_done = false;
+		bounce_index = -1;
+		LOG_INF("capture %u: %u records to download", offer.id, offer.length);
+		return;
+	}
+	/* the stream: it takes the memory a capture to download is in */
+	if (atomic_get(&offer.valid)) {
+		atomic_set(&offer.valid, 0);
+		k_sem_give(&downloaded);
+	}
+	mode = MODE_STREAM;
 	atomic_set(&active, 1);
 	scope_get_config(&config);
 	written = 0;
@@ -90,14 +155,73 @@ static void connected(void *user_data)
 
 static void closed(void *user_data)
 {
+	if (mode == MODE_DOWNLOAD) {
+		mode = MODE_NONE;
+		if (!download_done) {
+			LOG_WRN("capture %u: the download ended unfinished", offer.id);
+		}
+		return;
+	}
+	if (mode != MODE_STREAM) {
+		return;
+	}
+	mode = MODE_NONE;
 	capture_stream_stop();
 	last_end = atomic_get(&lost) ? "overrun" : tcp_stream_end_name(tcp_stream_last_end());
 	atomic_set(&active, 0);
 	LOG_INF("stream closed%s", atomic_get(&lost) ? " by an overrun" : "");
 }
 
+/* a segment of the capture to download */
+static const void *download_segment(uint64_t index)
+{
+	const uint32_t records = capture_ring_records();
+	const uint8_t *capture = (const uint8_t *)capture_ring();
+	uint32_t first;
+
+	if (!atomic_get(&offer.valid)) {
+		/* the scope has gone on: the ring no longer holds it */
+		tcp_stream_close();
+		return NULL;
+	}
+	if (index >= download_segments) {
+		/* all sent: done once acknowledged */
+		if (!download_done && tcp_stream_acked() >= download_segments) {
+			download_done = true;
+			LOG_INF("capture %u downloaded", offer.id);
+			k_sem_give(&downloaded);
+			tcp_stream_close();
+		}
+		return NULL;
+	}
+	first = (offer.start + (uint32_t)index * SEGMENT_RECORDS) & (records - 1);
+	if (first + SEGMENT_RECORDS <= records) {
+		return capture + first * RECORD_BYTES;
+	}
+	/* across the ring's end: its two parts, once, into the bounce buffer */
+	if (bounce_index != (int64_t)index) {
+		uint32_t part = records - first;
+
+		memcpy(bounce, capture + first * RECORD_BYTES, part * RECORD_BYTES);
+		memcpy(bounce + part * RECORD_BYTES, capture, (SEGMENT_RECORDS - part) * RECORD_BYTES);
+		bounce_index = index;
+	}
+	return bounce;
+}
+
+static uint32_t message_segments(void *user_data)
+{
+	return mode == MODE_DOWNLOAD ? download_segments : SCOPE_STREAM_SEGMENTS;
+}
+
 static const void *segment(uint64_t index, void *user_data)
 {
+	if (mode == MODE_DOWNLOAD) {
+		return download_segment(index);
+	}
+	if (mode != MODE_STREAM) {
+		return NULL;
+	}
 	uint64_t first = index * SEGMENT_RECORDS;
 	uint64_t end = first + SEGMENT_RECORDS;
 
@@ -120,6 +244,7 @@ static const void *segment(uint64_t index, void *user_data)
 static const struct ws_stream_source source = {
 	.payload_len = SEGMENT_RECORDS * RECORD_BYTES,
 	.segments_per_message = SCOPE_STREAM_SEGMENTS,
+	.message_segments = message_segments,
 	.connected = connected,
 	.closed = closed,
 	.segment = segment,

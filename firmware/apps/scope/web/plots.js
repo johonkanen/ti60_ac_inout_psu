@@ -138,6 +138,7 @@ class PlotArea {
   //   bands         offer the band (min..max with the mean) or the instantaneous value per plot
   //   values(entry, idx, hovering) the values panel's HTML, at data index idx
   //   onSelect(from, to)  a drag across a plot; without it the plots zoom, all of them
+  //   onReset()     a double-click on a plot (with onSelect: the page zooms out)
   //   draw(u, entry)  drawn over a plot after it (markers)
   constructor(options) {
     this.o = options;
@@ -336,7 +337,9 @@ class PlotArea {
     }, null, div);
     entry.u = u;
     // a double-click zooms out, when the plots zoom themselves
-    div.addEventListener('dblclick', () => { if (!this.o.onSelect) this.setZoom(null); });
+    div.addEventListener('dblclick', () => {
+      if (this.o.onReset) this.o.onReset(); else if (!this.o.onSelect) this.setZoom(null);
+    });
     // a click (not a drag) on a curve: that channel on top
     let down = null;
     div.addEventListener('mousedown', e => { down = [e.clientX, e.clientY]; });

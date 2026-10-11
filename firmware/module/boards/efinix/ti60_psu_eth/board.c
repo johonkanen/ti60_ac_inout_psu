@@ -6,7 +6,9 @@
  * Hart 1 is not restarted. Zephyr parks it in a wfi loop with mie = 0, so it never
  * wakes and the bootloader can overwrite the RAM around it. Before the jump, nothing
  * else may write HyperRAM: the TSEMAC's DMA is stopped, as receive frames would land
- * in the middle of the image being copied.
+ * in the middle of the image being copied, and so is the scope's (its capture ring, wherever
+ * this image had it: an update to an image with another layout hung in its start when it
+ * went on writing there).
  */
 #include <zephyr/arch/cpu.h>
 #include <zephyr/devicetree.h>
@@ -17,6 +19,7 @@
 #define BOOTLOADER_ADDRESS 0xf9000000 /* the SoC's reset address, in on-chip RAM */
 
 #define ETH_NODE DT_NODELABEL(eth0)
+#define SCOPE_NODE DT_NODELABEL(scope)
 
 /* TSEMAC registers, see drivers/ethernet/eth_efinix_tsemac.c */
 #define MAC_COMMAND_CONFIG 0x008
@@ -46,12 +49,26 @@ static void tsemac_stop(void)
 #endif
 }
 
+/* the scope's DMA channel (its capture into the HyperRAM) */
+static void scope_dma_stop(void)
+{
+#if DT_NODE_HAS_STATUS_OKAY(SCOPE_NODE)
+	uintptr_t channel = DT_REG_ADDR_BY_NAME(SCOPE_NODE, dma);
+
+	sys_write32(0, channel + DMA_INTERRUPT_ENABLE);
+	sys_write32(DMA_STATUS_STOP, channel + DMA_STATUS);
+	for (int i = 0; i < 100000 && (sys_read32(channel + DMA_STATUS) & DMA_STATUS_BUSY); i++) {
+	}
+#endif
+}
+
 void sys_arch_reboot(int type)
 {
 	ARG_UNUSED(type);
 
 	/* sys_reboot() has already locked interrupts */
 	tsemac_stop();
+	scope_dma_stop();
 	csr_write(mie, 0);
 	__asm__ volatile("fence\n"
 			 ".word 0x500f\n" /* invalidate the data cache */

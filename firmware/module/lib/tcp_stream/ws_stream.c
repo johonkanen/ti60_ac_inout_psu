@@ -95,7 +95,17 @@ static void answer(void)
 	}
 	upgraded = true;
 	if (source->connected != NULL) {
-		source->connected(source_data);
+		/* the request's path, "GET <path> HTTP/1.1": what the client asks for */
+		char path[64];
+		const char *p = request + 4;
+		size_t n = 0;
+
+		while (p[n] != ' ' && p[n] != '\r' && p[n] != '\0' && n < sizeof(path) - 1) {
+			n++;
+		}
+		memcpy(path, p, n);
+		path[n] = '\0';
+		source->connected(path, source_data);
 	}
 	tcp_stream_open();
 }
@@ -119,7 +129,8 @@ static void received(const uint8_t *data, size_t len, void *user_data)
 static const void *segment(uint64_t index, uint8_t *prefix, void *user_data)
 {
 	const void *payload = source->segment(index, source_data);
-	uint32_t n = source->segments_per_message;
+	uint32_t n = source->message_segments != NULL ? source->message_segments(source_data)
+						       : source->segments_per_message;
 	uint32_t place = (uint32_t)index % n;  /* 2^32 segments are terabytes away */
 	uint8_t opcode = place == 0 ? 0x2 : 0x0;       /* binary, then continuation */
 
@@ -144,7 +155,8 @@ static struct tcp_stream_source stream_source = {
 int ws_stream_start(struct net_if *iface, uint16_t port, const struct ws_stream_source *ws_source,
 		    void *user_data)
 {
-	if (ws_source->payload_len < 126 || ws_source->segments_per_message == 0) {
+	if (ws_source->payload_len < 126 ||
+	    (ws_source->segments_per_message == 0 && ws_source->message_segments == NULL)) {
 		return -EINVAL;         /* the 16 bit length form only */
 	}
 	if (psa_crypto_init() != PSA_SUCCESS) {

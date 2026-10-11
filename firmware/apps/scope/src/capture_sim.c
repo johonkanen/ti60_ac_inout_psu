@@ -31,7 +31,7 @@ static uint16_t counter;
 static uint32_t clock_count;
 static int64_t last_uptime_us;
 
-static int16_t window[2 * SCOPE_MAX_LENGTH][SCOPE_CHANNELS];
+static int16_t window[2 * SCOPE_WS_MAX_LENGTH][SCOPE_CHANNELS];   /* longer: the hardware's */
 
 static void make_sine_table(void)
 {
@@ -97,7 +97,7 @@ int capture_run(const struct scope_config *config, bool force, int16_t *samples,
 	double sample_rate = SCOPE_CLOCK_HZ / (config->divider + 1);
 	uint32_t increment = (uint32_t)(int64_t)(config->generator_hz / sample_rate * 4294967296.0);
 	uint32_t clocks = config->divider + 1;
-	uint32_t length = config->length;
+	uint32_t length = MIN(config->length, SCOPE_WS_MAX_LENGTH);
 	uint32_t pre = MIN(length * config->pre_percent / 100, length - 1);
 	int64_t now = k_ticks_to_us_floor64(k_uptime_ticks());
 	uint64_t passed;

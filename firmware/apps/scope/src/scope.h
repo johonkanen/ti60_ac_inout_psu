@@ -14,7 +14,10 @@
 
 #define SCOPE_CHANNELS   8
 #define SCOPE_SOURCES    64
-#define SCOPE_MAX_LENGTH 32768
+#define SCOPE_MAX_LENGTH 1000000
+/* longer captures are not sent on /ws but downloaded from the ring on the stream's port
+ * (stream.c, scope_download_offer()) */
+#define SCOPE_WS_MAX_LENGTH 32768
 #define SCOPE_CLOCK_HZ   125000000.0
 
 enum scope_mode {
@@ -82,6 +85,7 @@ struct scope_config {
 };
 
 struct scope_capture {
+	uint32_t start;   /* its first record in the ring (capture_ring()) */
 	uint32_t length;
 	uint32_t pre; /* samples before the trigger */
 	bool forced;
@@ -98,6 +102,7 @@ int capture_init(void);
  * of sample 0, then sample 1, ... Returns 0 when captured, -EAGAIN when the trigger has
  * not come yet; force takes the capture without it.
  */
+/* samples NULL: the capture stays in the ring only (capture->start), for a download */
 int capture_run(const struct scope_config *config, bool force, int16_t *samples,
 		struct scope_capture *capture);
 
@@ -129,10 +134,21 @@ uint32_t scope_stream_lost(void);
  * took over), "closed by the source" */
 const char *scope_stream_end(void);
 
+/*
+ * A capture longer than SCOPE_WS_MAX_LENGTH, left in the capture ring, offered for download on
+ * the stream's port (ws://<board>:5004/capture?id=<id>); scope_download_wait() returns true
+ * once it has been downloaded, false at the timeout; withdraw before the ring is used again.
+ */
+void scope_download_offer(uint32_t id, uint32_t start, uint32_t length);
+bool scope_download_wait(int32_t ms);
+void scope_download_withdraw(void);
+
 /* capture_hw.c: the continuous capture behind the stream */
 const int16_t *capture_stream_start(const struct scope_config *config);
 void capture_stream_stop(void);
 uint32_t capture_stream_written(void);  /* records in the ring since the start, 32 bits */
+const int16_t *capture_ring(void);      /* the triggered captures' ring */
+uint32_t capture_ring_records(void);    /* a power of two */
 bool capture_stream_ram_usable(void);   /* the FPGA's HyperRAM controller serves the ring's die */
 uint32_t capture_overflows(void);       /* records the DMA did not take in time */
 

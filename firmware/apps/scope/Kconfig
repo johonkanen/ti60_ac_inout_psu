@@ -9,10 +9,11 @@ config SCOPE_CAPTURE_HW
 
 config SCOPE_RING_RECORDS
 	int "Records in the capture ring"
-	default 65536
+	default 1048576
 	depends on SCOPE_CAPTURE_HW
 	help
-	  A record is a sample of all eight channels, 16 bytes. A power of two.
+	  A record is a sample of all eight channels, 16 bytes. A power of two. The ring is on
+	  the HyperRAM's second die (16 MB), shared with the stream's.
 
 config SCOPE_STREAM
 	bool "Stream the FPGA's continuous capture on a WebSocket of its own"

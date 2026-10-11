@@ -161,7 +161,15 @@ static K_MUTEX_DEFINE(send_lock);
  * holds the last capture sent, for a page that connects later (last and last_size under
  * send_lock).
  */
-#define MESSAGE_SIZE (4 + HEADER_MAX + SCOPE_MAX_LENGTH * SCOPE_CHANNELS * sizeof(int16_t))
+#define MESSAGE_SIZE (4 + HEADER_MAX + SCOPE_WS_MAX_LENGTH * SCOPE_CHANNELS * sizeof(int16_t))
+/* the longest capture: longer than /ws carries only with the stream's port to download from */
+#ifdef CONFIG_SCOPE_STREAM
+#define MAX_LENGTH SCOPE_MAX_LENGTH
+#else
+#define MAX_LENGTH SCOPE_WS_MAX_LENGTH
+#endif
+/* how long a capture waits for its download before the scope goes on */
+#define DOWNLOAD_WAIT_MS 5000
 static uint8_t messages[2][MESSAGE_SIZE] __aligned(4);
 static int filling;
 static int last = -1;
@@ -280,7 +288,7 @@ static void apply_config(const char *message, bool with_gate_power)
 		config.divider = CLAMP((uint32_t)v, 0, 1000000);
 	}
 	if (json_number(message, "length", &v)) {
-		config.length = CLAMP((uint32_t)v, 16, SCOPE_MAX_LENGTH);
+		config.length = CLAMP((uint32_t)v, 16, MAX_LENGTH);
 	}
 	if (json_number(message, "pre_percent", &v)) {
 		config.pre_percent = CLAMP((uint32_t)v, 0, 100);
@@ -533,7 +541,7 @@ static void send_hello(int sock)
 			      scope_source_names[s]);
 	}
 	n += snprintf(message + n, sizeof(message) - n, "],\"clock_hz\":%.0f,\"max_length\":%d",
-		      SCOPE_CLOCK_HZ, SCOPE_MAX_LENGTH);
+		      SCOPE_CLOCK_HZ, MAX_LENGTH);
 	if (capture_waveform_capacity() > 0) {
 		n += snprintf(message + n, sizeof(message) - n, ",\"waveform\":{\"capacity\":%u}",
 			      capture_waveform_capacity());
@@ -1107,8 +1115,9 @@ int scope_client_add(int ws_socket)
 
 /* ------------------------------------------------------------------ acquisition */
 
+/* download: the samples are not in the message but downloaded (stream.c) with this id */
 static size_t build_capture_message(uint8_t *message, const struct scope_config *c,
-				    const struct scope_capture *cap)
+				    const struct scope_capture *cap, bool download)
 {
 	char *header = (char *)message + 4;
 	int n = snprintf(header, HEADER_MAX,
@@ -1119,9 +1128,9 @@ static size_t build_capture_message(uint8_t *message, const struct scope_config 
 	n += print_sources(header + n, HEADER_MAX - n);
 	n += snprintf(header + n, HEADER_MAX - n,
 		      ",\"forced\":%s,\"capture\":%u,\"trigger_channel\":%u,\"trigger_level\":%d,"
-		      "\"lost\":%u}",
+		      "\"lost\":%u,\"download\":%s}",
 		      cap->forced ? "true" : "false", status.captures, c->trigger_channel,
-		      c->trigger_level, cap->lost);
+		      c->trigger_level, cap->lost, download ? "true" : "false");
 	/* padded to the samples, which capture_run wrote after HEADER_MAX: JSON takes the spaces */
 	n = MIN(n, HEADER_MAX);
 	memset(header + n, ' ', HEADER_MAX - n);
@@ -1212,7 +1221,10 @@ static void scope_thread(void *p1, void *p2, void *p3)
 
 			uint32_t t0 = k_cycle_get_32();
 
-			ret = capture_run(&c, force, (int16_t *)&messages[filling][offset], &cap);
+			/* a long capture stays in the ring, downloaded from there */
+			ret = capture_run(&c, force,
+					  c.length > SCOPE_WS_MAX_LENGTH ? NULL : (int16_t *)&messages[filling][offset],
+					  &cap);
 			capture_cycles = k_cycle_get_32() - t0;
 			if (ret == 0 || ret == -EBUSY || !status.running ||
 			    status.config_version != version) {
@@ -1239,9 +1251,17 @@ static void scope_thread(void *p1, void *p2, void *p3)
 		}
 		k_mutex_unlock(&scope_lock);
 
-		size_t size = build_capture_message(messages[filling], &c, &cap) +
-			      cap.length * SCOPE_CHANNELS * sizeof(int16_t);
+		bool download = cap.length > SCOPE_WS_MAX_LENGTH;
+		size_t size = build_capture_message(messages[filling], &c, &cap, download) +
+			      (download ? 0 : cap.length * SCOPE_CHANNELS * sizeof(int16_t));
 		uint32_t t1 = k_cycle_get_32();
+
+#ifdef CONFIG_SCOPE_STREAM
+		if (download) {
+			/* offered before the pages hear of it, so one that asks at once finds it */
+			scope_download_offer(status.captures, cap.start, cap.length);
+		}
+#endif
 
 		k_mutex_lock(&send_lock, K_FOREVER);
 		for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -1251,11 +1271,30 @@ static void scope_thread(void *p1, void *p2, void *p3)
 						   SEND_TIMEOUT_MS);
 			}
 		}
-		/* this one is the last capture now, the next goes into the other */
-		last = filling;
-		last_size = size;
-		filling = !filling;
+		/* this one is the last capture now, the next goes into the other; a long one is not
+		 * kept for pages that come later (its ring is used again) */
+		if (download) {
+			last = -1;
+		} else {
+			last = filling;
+			last_size = size;
+			filling = !filling;
+		}
 		k_mutex_unlock(&send_lock);
+#ifdef CONFIG_SCOPE_STREAM
+		if (download) {
+			/* the ring stays as it is until the capture is downloaded, the settings change, or
+			 * DOWNLOAD_WAIT_MS (a single capture has already stopped the scope: not a reason) */
+			int64_t until = k_uptime_get() + DOWNLOAD_WAIT_MS;
+
+			while (k_uptime_get() < until && status.config_version == version) {
+				if (scope_download_wait(100)) {
+					break;
+				}
+			}
+			scope_download_withdraw();
+		}
+#endif
 		copy_us = k_cyc_to_us_floor32(capture_cycles);
 		send_us = k_cyc_to_us_floor32(k_cycle_get_32() - t1);
 		last_publish = k_uptime_get();

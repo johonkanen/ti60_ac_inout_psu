@@ -85,12 +85,17 @@ LOG_MODULE_REGISTER(capture_hw, LOG_LEVEL_INF);
 BUILD_ASSERT((RING_RECORDS & (RING_RECORDS - 1)) == 0, "the ring is a power of two");
 BUILD_ASSERT(SCOPE_MAX_LENGTH + PAD_RECORDS <= RING_RECORDS, "a capture fits the ring");
 
-static int16_t ring[RING_RECORDS][SCOPE_CHANNELS] __aligned(DMA_BURST_BYTES) __noinit;
-
 #define STREAM_RECORDS (SCOPE_STREAM_RING_SEGMENTS * SCOPE_STREAM_SEGMENT_RECORDS)
-/* the stream's ring: the HyperRAM's second die, its own (see the board's devicetree) */
+/*
+ * The rings on the HyperRAM's second die (see the board's devicetree), both from its start:
+ * the stream's, and the triggered captures' (a power of two, RING_RECORDS). They are never
+ * used at the same time: no capture while the stream runs.
+ */
 #define STREAM_RAM DT_NODELABEL(stream_ram)
 #define stream_ring ((int16_t (*)[SCOPE_CHANNELS])DT_REG_ADDR(STREAM_RAM))
+#define ring ((int16_t (*)[SCOPE_CHANNELS])DT_REG_ADDR(STREAM_RAM))
+#define RING_BYTES (RING_RECORDS * SCOPE_CHANNELS * sizeof(int16_t))
+BUILD_ASSERT(RING_BYTES <= DT_REG_SIZE(STREAM_RAM), "the capture ring fits the second die");
 #define STREAM_RING_BYTES (STREAM_RECORDS * SCOPE_CHANNELS * sizeof(int16_t))
 BUILD_ASSERT(STREAM_RING_BYTES <= DT_REG_SIZE(STREAM_RAM), "the stream ring fits the second die");
 BUILD_ASSERT(STREAM_RING_BYTES % DMA_BURST_BYTES == 0, "the stream ring is whole bursts");
@@ -170,7 +175,7 @@ static void arm(const struct scope_config *config)
 	}
 
 	reg_write(REG_COMMAND, COMMAND_STOP);
-	dma_restart(ring, sizeof(ring));
+	dma_restart(ring, RING_BYTES);
 	reg_write(REG_DIVIDER, config->divider);
 	reg_write(REG_TRIGGER, trigger);
 	reg_write(REG_LEVEL, (uint16_t)config->trigger_level);
@@ -858,15 +863,30 @@ static int run_locked(const struct scope_config *config, bool force, int16_t *sa
 	dcache_invalidate();
 	start = reg_read(REG_START_RECORD) & (RING_RECORDS - 1);
 	length = MIN(config->length, SCOPE_MAX_LENGTH);
-	/* the capture in at most two blocks: the ring wraps at most once */
-	uint32_t first = MIN(length, RING_RECORDS - start);
+	/* the capture in at most two blocks: the ring wraps at most once (none when only its
+	 * place is asked for: a download from the ring, stream.c) */
+	if (samples != NULL) {
+		uint32_t first = MIN(length, RING_RECORDS - start);
 
-	memcpy(samples, ring[start], first * sizeof(ring[0]));
-	memcpy(&samples[first * SCOPE_CHANNELS], ring[0], (length - first) * sizeof(ring[0]));
+		memcpy(samples, ring[start], first * sizeof(ring[0]));
+		memcpy(&samples[first * SCOPE_CHANNELS], ring[0], (length - first) * sizeof(ring[0]));
+	}
+	capture->start = start;
 	capture->length = length;
 	capture->pre = MIN(length * config->pre_percent / 100, length - 1);
 	capture->forced = (status & STATUS_FORCED) != 0;
 	return 0;
+}
+
+/* the triggered captures' ring: its records, eight int16 each, and how many */
+const int16_t *capture_ring(void)
+{
+	return &ring[0][0];
+}
+
+uint32_t capture_ring_records(void)
+{
+	return RING_RECORDS;
 }
 
 /* the source names from the scope's probe table */

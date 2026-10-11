@@ -12,7 +12,10 @@
 'use strict';
 
 const DIVIDERS = [0, 1, 4, 9, 24, 31, 49, 124, 249, 624, 1249, 2499, 6249, 12499, 24999, 62499, 124999];
-const LENGTHS = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768];
+// up to what the board says (hello.max_length); longer than 32768 a capture is downloaded from
+// the board's stream port (downloadCapture) and drawn as min and max per pixel column
+const LENGTHS = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1000000];
+let maxLength = 32768;
 const STREAM_PORT = 5004;
 const STREAM_RECORD_BYTES = CHANNELS * 2;
 const STREAM_MAX_BYTES = 62.5e6;    // what the board carries, measured: 3.9 MS/s
@@ -55,7 +58,8 @@ function formatTime(seconds) {
 // ------------------------------------------------------------------ controls
 function buildControls() {
   $('rate').innerHTML = DIVIDERS.map(d => `<option value="${d}">${formatRate(clockHz / (d + 1))}</option>`).join('');
-  $('length').innerHTML = LENGTHS.map(l => `<option value="${l}">${l} samples</option>`).join('');
+  $('length').innerHTML = LENGTHS.filter(l => l <= maxLength)
+    .map(l => `<option value="${l}">${l.toLocaleString('en').replace(/,/g, ' ')} samples</option>`).join('');
   $('trigger_channel').innerHTML = Array.from({length: CHANNELS}, (_, i) => `<option value="${i}">CH${i + 1}</option>`).join('');
 
   const channels = $('channels');
@@ -563,9 +567,71 @@ function plotValues(entry, idx, hovering) {
   return html;
 }
 
+// a drag across a plot zooms in, a double-click out: a long capture is reduced again for the
+// range shown, a short one only scaled
+function zoomTo(range) {
+  if (capture && capture.long) {
+    capture.zoom = range;
+    plotCapture();
+    return;
+  }
+  area.setZoom(range);
+}
+
+// a long capture's samples in the range shown (capture.zoom, s) to the plots' columns: every
+// sample when there are few, else the minimum and maximum of each column at its two ends
+function reduceLong() {
+  const {header, samples} = capture;
+  const n = header.length, rate = header.sample_rate, pre = header.pre;
+  let first = 0, end = n;
+  if (capture.zoom) {
+    first = Math.max(0, Math.floor(capture.zoom[0] * rate + pre));
+    end = Math.min(n, Math.ceil(capture.zoom[1] * rate + pre) + 1);
+    if (end - first < 2) { first = Math.max(0, first - 1); end = Math.min(n, first + 2); }
+  }
+  const count = end - first;
+  const columns = Math.max(100, Math.min(4000, area.width()));
+  if (count <= 2 * columns) {
+    const time = new Float64Array(count);
+    const channels = Array.from({length: CHANNELS}, () => new Float64Array(count));
+    for (let k = 0; k < count; k++) {
+      const s = first + k;
+      time[k] = (s - pre) / rate;
+      for (let c = 0; c < CHANNELS; c++) channels[c][k] = samples[s * CHANNELS + c];
+    }
+    return {time, channels};
+  }
+  const per = Math.ceil(count / columns);
+  const buckets = Math.ceil(count / per);
+  const time = new Float64Array(2 * buckets);
+  const channels = Array.from({length: CHANNELS}, () => new Float64Array(2 * buckets));
+  for (let b = 0; b < buckets; b++) {
+    const from = first + b * per, to = Math.min(end, from + per);
+    time[2 * b] = (from - pre) / rate;
+    time[2 * b + 1] = (to - 1 - pre) / rate;
+    for (let c = 0; c < CHANNELS; c++) {
+      if (!area.visible[c]) continue;
+      let min = Infinity, max = -Infinity;
+      for (let i = from * CHANNELS + c; i < to * CHANNELS; i += CHANNELS) {
+        const v = samples[i];
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      channels[c][2 * b] = min;
+      channels[c][2 * b + 1] = max;
+    }
+  }
+  return {time, channels};
+}
+
 // the capture in units to the plots
 function plotCapture() {
   if (!capture) return;
+  if (capture.long) {
+    const reduced = reduceLong();
+    capture.time = reduced.time;
+    capture.channels = reduced.channels;
+  }
   const channels = capture.channels.map((ch, c) => {
     const unit = units.convert(sourceOf(c));
     const line = new Float64Array(ch.length);
@@ -719,6 +785,10 @@ function showCapture(buffer) {
   const view = new DataView(buffer);
   const headerLength = view.getUint32(0, true);
   const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 4, headerLength)));
+  if (header.download) {
+    downloadCapture(header);
+    return;
+  }
   const samples = new Int16Array(buffer.slice(4 + headerLength));
   const n = header.length;
   const time = new Float64Array(n);
@@ -740,6 +810,51 @@ function showCapture(buffer) {
   showLost(header);
 }
 
+// a long capture from the board's stream port: one message of its records (and the ring's
+// next ones, up to a whole segment), taken as the capture
+let download = null;
+function downloadCapture(header) {
+  if (download) download.socket.close();
+  const d = {socket: new WebSocket(`ws://${location.hostname}:${STREAM_PORT}/capture?id=${header.capture}`),
+             started: performance.now(), done: false};
+  download = d;
+  d.socket.binaryType = 'arraybuffer';
+  $('stream_status').textContent = `capture ${header.capture}: downloading ` +
+    `${(header.length * STREAM_RECORD_BYTES / 1e6).toFixed(1)} MB…`;
+  $('stream_status').classList.remove('error');
+  d.socket.onmessage = event => {
+    d.done = true;
+    d.socket.close();
+    if (download === d) download = null;
+    if (stream) return;
+    const records = Math.min(header.length, event.data.byteLength / STREAM_RECORD_BYTES);
+    const samples = new Int16Array(event.data, 0, records * CHANNELS);
+    const seconds = (performance.now() - d.started) / 1000;
+    capture = {header: {...header, length: records}, samples, long: true, zoom: null};
+    if (header.sources && config && header.sources.some((source, c) => source !== config.sources[c])) {
+      config.sources = header.sources.slice();
+      config.sources.forEach((source, c) => { $(`source${c}`).value = source; });
+      replot();
+    } else {
+      plotCapture();
+    }
+    showLost(header);
+    if (!header.lost) {
+      $('stream_status').textContent = `capture ${header.capture}: ${records.toLocaleString('en')} samples, ` +
+        `${(event.data.byteLength / 1e6).toFixed(1)} MB in ${seconds.toFixed(2)} s · drag to zoom in, double-click for all`;
+    }
+  };
+  d.socket.onclose = () => {
+    if (download === d) download = null;
+    if (!d.done) {
+      $('stream_status').textContent = `capture ${header.capture}: the download did not come ` +
+        `(${boardStatus.stream_end && boardStatus.stream_end !== 'none' ? boardStatus.stream_end : 'closed'}; ` +
+        'the stream port serves one client at a time)';
+      $('stream_status').classList.add('error');
+    }
+  };
+}
+
 // a capture the memory did not take all of: the deep capture keeps up to about 12.5 MS/s
 function showLost(header) {
   const lost = header.lost || 0;
@@ -754,16 +869,23 @@ function updateMeasurements() {
   const rows = [];
   for (let c = 0; c < CHANNELS; c++) {
     if (!area.visible[c]) continue;
-    const d = capture.stream ? capture.full[c] : capture.channels[c];
     const name = sourceOf(c), unit = units.convert(name);
-    let min = Infinity, max = -Infinity, sum = 0, squares = 0;
-    for (const counts of d) {
+    let min = Infinity, max = -Infinity, sum = 0, squares = 0, count = 0;
+    const take = counts => {
       const v = unit(counts);
       if (v < min) min = v;
       if (v > max) max = v;
       sum += v;
       squares += v * v;
+      count++;
+    };
+    if (capture.long) {
+      // every sample, not the columns drawn
+      for (let i = c; i < capture.header.length * CHANNELS; i += CHANNELS) take(capture.samples[i]);
+    } else {
+      for (const counts of capture.stream ? capture.full[c] : capture.channels[c]) take(counts);
     }
+    const d = {length: count};
     const f = v => units.format(name, v);
     rows.push(`<tr><td style="color:${COLORS[c]}">CH${c + 1}</td><td>${name}</td><td>${units.of(name).unit}</td>
       <td>${f(min)}</td><td>${f(max)}</td><td>${f(max - min)}</td><td>${f(sum / d.length)}</td><td>${f(Math.sqrt(squares / d.length))}</td></tr>`);
@@ -777,11 +899,20 @@ function exportCsv() {
   const channels = Array.from({length: CHANNELS}, (_, c) => c);
   const convert = channels.map(c => units.convert(sourceOf(c)));
   const lines = ['time_s,' + channels.map(c => `CH${c + 1} ${sourceOf(c)} [${units.of(sourceOf(c)).unit}]`).join(',')];
-  const data = capture.stream ? capture.full : capture.channels;
-  const n = capture.stream ? capture.header.length : capture.time.length;
-  for (let s = 0; s < n; s++) {
-    const t = capture.stream ? s / capture.header.sample_rate : capture.time[s];
-    lines.push(t.toPrecision(9) + ',' + channels.map(c => units.format(sourceOf(c), convert[c](data[c][s]))).join(','));
+  if (capture.long) {
+    // every sample of a long capture, not the columns drawn
+    const {header, samples} = capture;
+    for (let s = 0; s < header.length; s++) {
+      const t = (s - header.pre) / header.sample_rate;
+      lines.push(t.toPrecision(9) + ',' + channels.map(c => units.format(sourceOf(c), convert[c](samples[s * CHANNELS + c]))).join(','));
+    }
+  } else {
+    const data = capture.stream ? capture.full : capture.channels;
+    const n = capture.stream ? capture.header.length : capture.time.length;
+    for (let s = 0; s < n; s++) {
+      const t = capture.stream ? s / capture.header.sample_rate : capture.time[s];
+      lines.push(t.toPrecision(9) + ',' + channels.map(c => units.format(sourceOf(c), convert[c](data[c][s]))).join(','));
+    }
   }
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([lines.join('\n')], {type: 'text/csv'}));
@@ -860,10 +991,12 @@ function connect() {
       sourceNames = message.source_names;
       clockHz = message.clock_hz;
       config = message.config;
+      if (message.max_length) maxLength = message.max_length;
       if (!built) {
         await units.load();
         area = new PlotArea({container: $('plots'), storageKey: 'scope.layout', sourceOf,
-                             timeFormat: formatTime, values: plotValues, draw: drawMarkers});
+                             timeFormat: formatTime, values: plotValues, draw: drawMarkers,
+                             onSelect: zoomTo, onReset: () => zoomTo(null)});
         area.visible.fill(false, 4);
         buildControls();
         built = true;
