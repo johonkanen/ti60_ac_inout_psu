@@ -104,8 +104,10 @@ item when it is done; the commit that does it says so.
   its thread had ended (creating a thread the kernel still listed corrupted its thread list: the
   HTTP server stopped, once the whole firmware hung), and a page gone without closing held its
   slot; now a slot waits for its thread to end, a client silent for 10 s is closed, and there
-  are 6 slots. 503 page loads in the stress test since, none slow. The network watchdog
+  are 6 slots. Once (in some 1500 loads) a client's TCP socket fd had been closed by something
+  else before the client closed it, and closing it crashed the firmware: the close is now
+  guarded (only when the fd still refers to the same socket, else a warning "was closed
+  already"); who closed it is not known. 503 page loads in the stress test since, none slow. The network watchdog
   (main.c) restarts the firmware should the receive packets stay used up for 10 s; its restarts
-  show on the face panel ("r"). The websocket race is worth reporting to Zephyr.
-- Every page asks for scaling.json, which the board does not have until the data collection
-  page saves one: a 404 and a logged error each load, harmless.
+  show on the face panel ("r"). The websocket race is worth reporting to Zephyr (a draft
+  issue was written, not filed).

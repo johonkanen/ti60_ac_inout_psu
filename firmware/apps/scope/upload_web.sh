@@ -27,4 +27,11 @@ for name in $(curl -sS --fail "http://$address/files/" | python3 -c \
         curl -sS --fail-with-body -X DELETE "http://$address/files/$name"
     fi
 done
+# every page reads scaling.json: an empty one ({}, the built-in scaling) where the board has
+# none yet, so no page load asks for a file that is not there
+if ! curl -sS --fail "http://$address/files/" | grep -q '"scaling.json.gz"'; then
+    printf '{}' | gzip -9 -n > "$tmp/scaling.json.gz"
+    curl -sS --fail-with-body -H 'Expect:' --data-binary @"$tmp/scaling.json.gz" \
+        "http://$address/files/scaling.json.gz"
+fi
 curl -sS "http://$address/files/"

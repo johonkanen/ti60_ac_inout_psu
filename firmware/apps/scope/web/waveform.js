@@ -526,11 +526,6 @@ function passes() {
   return $('repeat').checked ? Math.max(0, Math.round(+$('repeat_count').value)) : 1;
 }
 
-// the run's length in bridge periods: the waveform's passes; 0 until stopped
-function runPeriods() {
-  return passes() === 0 ? 0 : totalPeriods() * passes();
-}
-
 function ready() {
   if (!waveformSupport) return 'the firmware has no waveform player';
   if (!config || config.gate_power !== 63) return 'the gate driver supplies are off (the scope page)';
@@ -571,15 +566,15 @@ function showBoard() {
     parts.push(`waveform player: ${waveformSupport.capacity} points; ` +
       `${boardWaveform[0] ? `${boardWaveform[0]} loaded${changedSince}` : 'none loaded'}, ${playing}`);
     if (boardOutput & 8) parts.push('the last run was stopped by the watchdog: no page was there');
-    const problem = ready();
-    if (problem) parts.push(`Run: ${problem}`);
+    // the banner's Start runs these points (loading them first)
+    const problem = !points.length ? 'no points' :
+      points.length > capacity() ? `more points than the board's ${capacity()}` : null;
+    parts.push(problem ? `Start: ${problem}` : "the banner's Start loads these points and runs them, its Stop ends the run");
   } else {
     parts.push('the firmware has no waveform player: the points stay here');
   }
   $('board').innerHTML = parts.map(l => `<div>${l}</div>`).join('');
   $('load').disabled = !waveformSupport || !points.length || points.length > capacity();
-  $('run').disabled = !!ready();
-  $('stop').disabled = !waveformSupport;
 }
 
 // ------------------------------------------------------------------ generators and files
@@ -1206,23 +1201,6 @@ function load() {
 }
 
 $('load').onclick = () => { load(); showBoard(); };
-$('run').onclick = () => {
-  const problem = ready();
-  if (problem) { $('status').textContent = problem; return; }
-  const periods = runPeriods();
-  const count = passes();
-  const what = count === 0 ? 'repeated until Stop' : count === 1 ? 'once' : `${count} times`;
-  const length = count === 0 ? '' : `, ${(periods / PERIODS_A_MS).toFixed(1)} ms`;
-  if (!confirm(`Output bridge closed loop on the waveform: ${points.length} points, ${what}${length}, ` +
-               `after the DHB's precharge (the secondary inverted, the current limited to ` +
-               `${config.control_i_max} A); then the output brought down to 0 V?`)) return;
-  load();
-  // a few periods more than the waveform, so it ends the run itself; 0: until Stop
-  send({type: 'waveform_run', periods: count === 0 ? 0 : Math.round(periods) + 10});
-  send({type: 'dhb_test', periods: 75000, pulse: 40, ramp: 124, run: DHB_RUN_MS * 150, invert: 1});
-  showBoard();
-};
-$('stop').onclick = () => send({type: 'waveform_stop'});
 for (const id of ['repeat', 'repeat_count']) $(id).addEventListener('change', () => { showSummary(); showBoard(); });
 for (const id of ['snap_v', 'snap_t', 'default_hold', 'repeat', 'repeat_count', 'noise_rms', 'noise_seed',
                   'noise_generated', 'compensate', 'compensate_loop']) {

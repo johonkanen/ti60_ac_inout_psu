@@ -16,6 +16,7 @@
 /* Zephyr's websocket context (this Zephyr's, v4.4.2: west.yml), for the clients' own receive
  * buffers and their TCP sockets, see scope_client_add() */
 #include <websocket_internal.h>
+#include <zephyr/sys/fdtable.h>
 #include <zephyr/net/websocket.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
@@ -131,6 +132,7 @@ static K_MUTEX_DEFINE(scope_lock);
 static struct client {
 	int sock;
 	int real_sock; /* the websocket's TCP socket */
+	void *real_obj; /* what that fd referred to then (its net_context) */
 	bool started;  /* thread has been created (and maybe not yet ended) */
 	struct k_thread thread;
 	char *command; /* commands[] */
@@ -1013,8 +1015,19 @@ static void client_thread(void *p1, void *p2, void *p3)
 	 */
 	(void)zsock_close(client->sock);
 	if (client->real_sock >= 0) {
-		(void)zsock_close(client->real_sock);
+		/* only when the fd still is that socket: closed meanwhile and its number given to
+		 * another, closing it would close somebody else's */
+		void *obj = zvfs_get_fd_obj(client->real_sock, NULL, EBADF);
+
+		if (obj == client->real_obj) {
+			(void)zsock_close(client->real_sock);
+		} else {
+			LOG_WRN("client %d: its TCP socket %d was closed already", (int)(client - clients),
+				client->real_sock);
+		}
 	}
+	LOG_DBG("client %d: closed websocket %d, socket %d", (int)(client - clients), client->sock,
+		client->real_sock);
 	client->sock = -1;
 	client->real_sock = -1;
 	k_mutex_unlock(&send_lock);
@@ -1071,6 +1084,7 @@ int scope_client_add(int ws_socket)
 			lookup.ctx->recv_buf.size = sizeof(ws_buffers[i]);
 			lookup.ctx->recv_buf.count = 0;
 			client->real_sock = lookup.ctx->real_sock;
+			client->real_obj = zvfs_get_fd_obj(client->real_sock, NULL, EBADF);
 			client->sock = ws_socket;
 			client->command = commands[i];
 			client->started = true;

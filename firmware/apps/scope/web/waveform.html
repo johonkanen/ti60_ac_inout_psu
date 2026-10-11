@@ -13,8 +13,6 @@
   <nav><a href="index.html">Scope</a> · <a href="collect.html">Data collection</a> · <a href="update.html">Update</a></nav>
   <div class="buttons">
     <button id="load" title="write the points into the FPGA's table">Load to board</button>
-    <button id="run" class="primary" title="the output follows the loaded points">Run</button>
-    <button id="stop" title="the output brought down to 0 V">Stop</button>
   </div>
   <div id="status" class="status">connecting…</div>
 </header>
@@ -125,7 +123,7 @@
         with a sine tone at each frequency played through the waveform player, at the board's tuning
         as it is: each tone's component in the observer's voltage against the points'. The prefilter's
         part is known (its model, at the board's prefilter setting); the loop after it is what the grid
-        generator compensates. This runs the power stage, a tone at a time, as Run does.</p>
+        generator compensates. This runs the power stage, a tone at a time, as the banner's Start does.</p>
       <div class="row">
         <label class="inline">Tone (V) <input id="bode_amplitude" type="number" min="1" max="60" step="1" value="10"></label>
         <label class="inline">From (Hz) <input id="bode_from" type="number" min="5" step="1" value="20"></label>
