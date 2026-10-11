@@ -39,12 +39,6 @@ overrides = {
         "AXIMaster_1": "1'b1",
         "AXIMasterWidth_1": "64",
     },
-    # the board's x8 HyperRAM; read calibration shifts PLL output 3 (one-hot)
-    "hy0_ram": {
-        "RAM_DBW": "8",
-        "RAM_ABW": "26",
-        "CAL_CLK_CH": "8",
-    },
     # RGMII receive: the board's DDIO resync inputs give the rising edge nibble one clock
     # before its falling edge partner, which is the IP's "rising edge" pairing. Transmit:
     # the PHY delays the clock (its MIICTRL register), not the FPGA.
@@ -71,7 +65,6 @@ overrides["dma_scope"] = {
 # name in the design -> its parameters in ip_settings.py
 ips = {
     "SapphireCore": "SapphireCore",
-    "hy0_ram": "hyperram",
     "efx_tsemac": "tsemac",
     "dma": "dma",
     "dma_scope": "dma",

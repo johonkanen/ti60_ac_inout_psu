@@ -98,6 +98,9 @@ for tckd in (1.5, 3.0, 4.5):
     for lo_lags in (False, True):
         axi_tb.add_config(name=f"tckd_{tckd}_lo_{'lags' if lo_lags else 'leads'}",
                           generics=dict(tckd_ns=tckd, lo_lags=lo_lags))
+# the word counters starting just below 2**31, so a run crosses it (the padding once took
+# that for words still to pad, after 4 GB on the board)
+axi_tb.add_config(name="word_counters_wrap", generics=dict(word_count_start=2**31 - 3000))
 
 sys.path.append(str(root / "source" / "ethernet" / "sim"))
 import ethernet_test_frames

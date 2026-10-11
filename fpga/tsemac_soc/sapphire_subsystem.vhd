@@ -1,10 +1,13 @@
 library ieee;
     use ieee.std_logic_1164.all;
+    use ieee.numeric_std.all;
+
+    use work.hyperram_pkg.all;
 
 -- The Efinix IP cores of tsemac_soc, as Efinix's Ti60F225 TSEMAC Linux example design
 -- connects them (its top_ti60.v):
 --   SapphireCore  the RISC-V SoC, ip/SapphireCore (gen_ips.py)
---   hy0_ram       the HyperRAM controller, the SoC's main memory on its DDR port
+--   u_hyperram    our HyperRAM controller (hyperram_axi), the SoC's main memory on its DDR port
 --   ethernet_subsystem  ethernet/ethernet_subsystem.vhd: the TSEMAC and its scatter-gather DMA
 --                 on DDR master port 0, registers on APB slaves 0 (MAC, control) and 1 (DMA)
 --   dma_scope     a DMA for the oscilloscope, on DDR master port 1, registers on APB slave 2:
@@ -96,6 +99,12 @@ entity sapphire_subsystem is
 
         -- status, synchronous to io_tseClk except memory_ready (static once the SoC runs)
         ;memory_ready     : out std_logic   -- HyperRAM calibrated
+        -- hyperram_axi's calibration status, read timeouts and debug word, in ram_clk
+        ;hyperram_status   : out std_logic_vector(31 downto 0)
+        ;hyperram_timeouts : out std_logic_vector(15 downto 0)
+        ;hyperram_debug    : out std_logic_vector(63 downto 0)
+        ;hyperram_debug2   : out std_logic_vector(191 downto 0)
+        ;hyperram_debug3   : out std_logic_vector(255 downto 0)
         ;ethernet_speed   : out std_logic_vector(2 downto 0)
         ;ethernet_dma_interrupts : out std_logic_vector(1 downto 0)
         -- the TSEMAC control registers' PHY reset bit: no pin on this board, the top level
@@ -105,6 +114,11 @@ entity sapphire_subsystem is
 end entity sapphire_subsystem;
 
 architecture rtl of sapphire_subsystem is
+
+    function to_std(b : boolean) return std_logic is
+    begin
+        if b then return '1'; else return '0'; end if;
+    end function;
 
 
     -- component declarations: ports sorted by name, from the IPs' Verilog (gen_ips.py)
@@ -290,61 +304,6 @@ architecture rtl of sapphire_subsystem is
     );
     end component SapphireCore;
 
-    component hy0_ram is
-    port(
-        dyn_pll_phase_en     : in  std_logic;
-        dyn_pll_phase_sel    : in  std_logic_vector(2 downto 0);
-        hbc_cal_debug_info   : out std_logic_vector(26 downto 0);
-        hbc_cal_pass         : out std_logic;
-        hbc_cal_SHIFT        : out std_logic_vector(2 downto 0);
-        hbc_cal_SHIFT_ENA    : out std_logic;
-        hbc_cal_SHIFT_SEL    : out std_logic_vector(4 downto 0);
-        hbc_ck_n_HI          : out std_logic;
-        hbc_ck_n_LO          : out std_logic;
-        hbc_ck_p_HI          : out std_logic;
-        hbc_ck_p_LO          : out std_logic;
-        hbc_cs_n             : out std_logic;
-        hbc_dq_IN_HI         : in  std_logic_vector(7 downto 0);
-        hbc_dq_IN_LO         : in  std_logic_vector(7 downto 0);
-        hbc_dq_OE            : out std_logic_vector(7 downto 0);
-        hbc_dq_OUT_HI        : out std_logic_vector(7 downto 0);
-        hbc_dq_OUT_LO        : out std_logic_vector(7 downto 0);
-        hbc_rst_n            : out std_logic;
-        hbc_rwds_IN_HI       : in  std_logic_vector(0 downto 0);
-        hbc_rwds_IN_LO       : in  std_logic_vector(0 downto 0);
-        hbc_rwds_OE          : out std_logic_vector(0 downto 0);
-        hbc_rwds_OUT_HI      : out std_logic_vector(0 downto 0);
-        hbc_rwds_OUT_LO      : out std_logic_vector(0 downto 0);
-        io_arw_payload_addr  : in  std_logic_vector(31 downto 0);
-        io_arw_payload_burst : in  std_logic_vector(1 downto 0);
-        io_arw_payload_id    : in  std_logic_vector(7 downto 0);
-        io_arw_payload_len   : in  std_logic_vector(7 downto 0);
-        io_arw_payload_lock  : in  std_logic_vector(1 downto 0);
-        io_arw_payload_size  : in  std_logic_vector(2 downto 0);
-        io_arw_payload_write : in  std_logic;
-        io_arw_ready         : out std_logic;
-        io_arw_valid         : in  std_logic;
-        io_axi_clk           : in  std_logic;
-        io_b_payload_id      : out std_logic_vector(7 downto 0);
-        io_b_ready           : in  std_logic;
-        io_b_valid           : out std_logic;
-        io_r_payload_data    : out std_logic_vector(63 downto 0);
-        io_r_payload_id      : out std_logic_vector(7 downto 0);
-        io_r_payload_last    : out std_logic;
-        io_r_payload_resp    : out std_logic_vector(1 downto 0);
-        io_r_ready           : in  std_logic;
-        io_r_valid           : out std_logic;
-        io_w_payload_data    : in  std_logic_vector(63 downto 0);
-        io_w_payload_id      : in  std_logic_vector(7 downto 0);
-        io_w_payload_last    : in  std_logic;
-        io_w_payload_strb    : in  std_logic_vector(7 downto 0);
-        io_w_ready           : out std_logic;
-        io_w_valid           : in  std_logic;
-        ram_clk              : in  std_logic;
-        ram_clk_cal          : in  std_logic;
-        rst                  : in  std_logic
-    );
-    end component hy0_ram;
 
 
     component dma_scope is
@@ -399,7 +358,11 @@ architecture rtl of sapphire_subsystem is
     signal io_peripheralReset : std_logic;
     signal io_ddrMaster0Reset : std_logic;
     signal io_ddrMaster1Reset : std_logic;
-    signal hbc_cal_pass       : std_logic;
+    signal calibration_done   : boolean;
+    signal read_timeouts      : unsigned(15 downto 0);
+    signal phase_shift        : pll_phase_shift_record;
+    signal hyperram_out       : hyperram_ddr_fpga_out_record;
+    signal hyperram_in        : hyperram_ddr_fpga_in_record;
 
     -- the SoC's memory port to the HyperRAM controller
     signal ddr_arw_valid, ddr_arw_ready, ddr_arw_lock, ddr_arw_write : std_logic;
@@ -462,7 +425,6 @@ architecture rtl of sapphire_subsystem is
     signal dma_interrupts : std_logic_vector(1 downto 0);
     signal ram_reset      : std_logic;
     signal clocks_ready   : std_logic;
-    signal ddr_arw_lock2  : std_logic_vector(1 downto 0);
     signal eth_apb_paddr32, dma_apb_paddr32 : std_logic_vector(31 downto 0);
 
 begin
@@ -472,15 +434,14 @@ begin
     io_peripheralClk <= io_tseClk;
 
     -- held in reset until the clocks lock and the HyperRAM is calibrated, as top_ti60.v
-    clocks_ready  <= pll_locked and hbc_cal_pass;
+    clocks_ready  <= pll_locked and to_std(calibration_done);
     io_asyncReset <= not clocks_ready;
     ram_reset     <= not pll_locked;
 
-    ddr_arw_lock2   <= '0' & ddr_arw_lock;
     eth_apb_paddr32 <= x"0000" & eth_apb.paddr;
     dma_apb_paddr32 <= x"0000" & dma_apb.paddr;
 
-    memory_ready            <= hbc_cal_pass;
+    memory_ready            <= to_std(calibration_done);
     ethernet_dma_interrupts <= dma_interrupts;
 
 ------------------------------------------------------------------------
@@ -673,60 +634,65 @@ begin
         ,io_ddrMasters_1_r_payload_last    => open
     );
 ------------------------------------------------------------------------
-    u_hyperram : hy0_ram
+    -- our HyperRAM controller (../source/hyperram/hyperram_axi.vhd): the whole 64 MB for the
+    -- CPU and the DMAs (Efinix's controller corrupted DMA transfers on the second die)
+    u_hyperram : entity work.hyperram_axi
     port map(
-        io_axi_clk             => io_memoryClk
-        ,ram_clk               => ram_clk
-        ,ram_clk_cal           => ram_clk_cal
-        ,rst                   => ram_reset
-        ,io_arw_valid          => ddr_arw_valid
-        ,io_arw_ready          => ddr_arw_ready
-        ,io_arw_payload_addr   => ddr_arw_addr
-        ,io_arw_payload_id     => ddr_arw_id
-        ,io_arw_payload_len    => ddr_arw_len
-        ,io_arw_payload_size   => ddr_arw_size
-        ,io_arw_payload_burst  => ddr_arw_burst
-        ,io_arw_payload_lock   => ddr_arw_lock2
-        ,io_arw_payload_write  => ddr_arw_write
-        ,io_w_valid            => ddr_w_valid
-        ,io_w_ready            => ddr_w_ready
-        ,io_w_payload_id       => ddr_w_id
-        ,io_w_payload_data     => ddr_w_data
-        ,io_w_payload_strb     => ddr_w_strb
-        ,io_w_payload_last     => ddr_w_last
-        ,io_b_valid            => ddr_b_valid
-        ,io_b_ready            => ddr_b_ready
-        ,io_b_payload_id       => ddr_b_id
-        ,io_r_valid            => ddr_r_valid
-        ,io_r_ready            => ddr_r_ready
-        ,io_r_payload_data     => ddr_r_data
-        ,io_r_payload_id       => ddr_r_id
-        ,io_r_payload_resp     => ddr_r_resp
-        ,io_r_payload_last     => ddr_r_last
-        ,hbc_cal_pass          => hbc_cal_pass
-        ,hbc_cal_debug_info    => open
-        ,hbc_cal_SHIFT_SEL     => hbc_cal_SHIFT_SEL
-        ,hbc_cal_SHIFT         => hbc_cal_SHIFT
-        ,hbc_cal_SHIFT_ENA     => hbc_cal_SHIFT_ENA
-        ,dyn_pll_phase_sel     => (others => '0')
-        ,dyn_pll_phase_en      => '0'
-        ,hbc_dq_OE             => hbc_dq_OE
-        ,hbc_dq_IN_LO          => hbc_dq_IN_LO
-        ,hbc_dq_IN_HI          => hbc_dq_IN_HI
-        ,hbc_dq_OUT_LO         => hbc_dq_OUT_LO
-        ,hbc_dq_OUT_HI         => hbc_dq_OUT_HI
-        ,hbc_rwds_OE           => hbc_rwds_OE
-        ,hbc_rwds_IN_LO        => hbc_rwds_IN_LO
-        ,hbc_rwds_IN_HI        => hbc_rwds_IN_HI
-        ,hbc_rwds_OUT_LO       => hbc_rwds_OUT_LO
-        ,hbc_rwds_OUT_HI       => hbc_rwds_OUT_HI
-        ,hbc_ck_p_LO           => hbc_ck_p_LO
-        ,hbc_ck_p_HI           => hbc_ck_p_HI
-        ,hbc_ck_n_LO           => open      -- single ended CK on this board
-        ,hbc_ck_n_HI           => open
-        ,hbc_cs_n              => hbc_cs_n
-        ,hbc_rst_n             => hbc_rst_n
+        clock               => io_memoryClk
+        ,reset              => ram_reset = '1'
+        ,arw_valid          => ddr_arw_valid
+        ,arw_ready          => ddr_arw_ready
+        ,arw_addr           => ddr_arw_addr
+        ,arw_id             => ddr_arw_id
+        ,arw_len            => ddr_arw_len
+        ,arw_size           => ddr_arw_size
+        ,arw_burst          => ddr_arw_burst
+        ,arw_write          => ddr_arw_write
+        ,w_valid            => ddr_w_valid
+        ,w_ready            => ddr_w_ready
+        ,w_data             => ddr_w_data
+        ,w_strb             => ddr_w_strb
+        ,w_last             => ddr_w_last
+        ,b_valid            => ddr_b_valid
+        ,b_ready            => ddr_b_ready
+        ,b_id               => ddr_b_id
+        ,r_valid            => ddr_r_valid
+        ,r_ready            => ddr_r_ready
+        ,r_data             => ddr_r_data
+        ,r_id               => ddr_r_id
+        ,r_resp             => ddr_r_resp
+        ,r_last             => ddr_r_last
+        ,calibration_done   => calibration_done
+        ,calibration_passed => open
+        ,status             => hyperram_status
+        ,read_timeouts      => read_timeouts
+        ,debug              => hyperram_debug
+        ,debug2             => hyperram_debug2
+        ,debug3             => hyperram_debug3
+        ,phase_shift        => phase_shift
+        ,phase_shift_output => 3                    -- ram_clk_cal is the PLL's output 3
+        ,fpga_out           => hyperram_out
+        ,fpga_in            => hyperram_in          -- from the input DDIO registers on ram_clk_cal
     );
+    ddr_b_resp <= "00";
+    hyperram_timeouts <= std_logic_vector(read_timeouts);
+
+    hbc_cal_SHIFT     <= phase_shift.shift;
+    hbc_cal_SHIFT_SEL <= phase_shift.shift_select;
+    hbc_cal_SHIFT_ENA <= phase_shift.shift_enable;
+
+    hbc_ck_p_HI     <= hyperram_out.ck_hi;
+    hbc_ck_p_LO     <= hyperram_out.ck_lo;
+    hbc_cs_n        <= hyperram_out.cs_n;
+    hbc_rst_n       <= hyperram_out.reset_n;
+    hbc_dq_OUT_HI   <= hyperram_out.dq_hi;
+    hbc_dq_OUT_LO   <= hyperram_out.dq_lo;
+    hbc_dq_OE       <= (others => hyperram_out.dq_oe);
+    hbc_rwds_OUT_HI <= (0 => hyperram_out.rwds_hi);
+    hbc_rwds_OUT_LO <= (0 => hyperram_out.rwds_lo);
+    hbc_rwds_OE     <= (0 => hyperram_out.rwds_oe);
+    hyperram_in <= (dq_hi => hbc_dq_IN_HI, dq_lo => hbc_dq_IN_LO,
+                    rwds_hi => hbc_rwds_IN_HI(0), rwds_lo => hbc_rwds_IN_LO(0));
 ------------------------------------------------------------------------
     u_ethernet : entity work.ethernet_subsystem
     generic map(g_axi_width => 64)

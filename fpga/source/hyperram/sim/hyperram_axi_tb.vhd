@@ -15,7 +15,8 @@ context vunit_lib.vunit_context;
 --   tckd_ns      CK to DQ/RWDS delay of the memory model
 --   lo_lags      pairing of the input DDIO halves, see the input register model
 entity hyperram_axi_tb is
-  generic (runner_cfg : string; tckd_ns : real := 3.0; lo_lags : boolean := true);
+  generic (runner_cfg : string; tckd_ns : real := 3.0; lo_lags : boolean := true;
+           word_count_start : natural := 0);
 end;
 
 architecture vunit_simulation of hyperram_axi_tb is
@@ -61,7 +62,7 @@ architecture vunit_simulation of hyperram_axi_tb is
     signal rwds_out_pin, dq_oe_pin, rwds_oe_pin : std_logic := '0';
 
     -- the traffic: write beats to send, read beats and write responses to expect
-    constant max_beats : natural := 32768;
+    constant max_beats : natural := 65536;
     type data_array is array (natural range <>) of std_logic_vector(63 downto 0);
     type strb_array is array (natural range <>) of std_logic_vector(7 downto 0);
     type id_array is array (natural range <>) of std_logic_vector(7 downto 0);
@@ -173,7 +174,8 @@ begin
 
 ------------------------------------------------------------------------
     dut : entity work.hyperram_axi
-    generic map(g_reset_low_clocks => 20, g_power_up_clocks => 100, g_settle_clocks => 20)
+    generic map(g_reset_low_clocks => 20, g_power_up_clocks => 100, g_settle_clocks => 20,
+                g_word_count_start => word_count_start)
     port map(
         clock      => hr_clock,
         reset      => reset,
@@ -188,7 +190,6 @@ begin
         read_timeouts      => read_timeouts,
         phase_shift        => phase_shift,
         fpga_out           => fpga_out,
-        read_clock         => read_clock,
         fpga_in            => fpga_in);
 
 ------------------------------------------------------------------------
@@ -428,6 +429,23 @@ begin
                 end loop;
                 wait_until_all_done(20 ms);
 
+            elsif run("long_random_cpu_like_traffic") then
+                -- mostly the CPU's cache lines (1 and 8 beats) and short DMA bursts, long stalls
+                w_gap_percent   <= 50;
+                r_stall_percent <= 70;
+                b_stall_percent <= 80;
+                for k in 0 to 1999 loop
+                    address := random(16#2000#) * 8 + 16#1000# + 16#2000000# * random(2);
+                    case random(8) is
+                        when 0 to 3 => beats := 1;
+                        when 4 to 5 => beats := 8;
+                        when 6      => beats := 1 + random(32);
+                        when others => beats := 1 + random(256);
+                    end case;
+                    command(random(3) /= 0, address, beats, strobes_random => random(2) = 0);
+                end loop;
+                wait_until_all_done(40 ms);
+
             elsif run("throughput") then
                 -- 64 KB written and read back in 2 KB bursts, no back-pressure
                 t0 := now;
@@ -450,6 +468,6 @@ begin
         wait;
     end process;
 
-    test_runner_watchdog(runner, 50 ms);
+    test_runner_watchdog(runner, 100 ms);
 
 end vunit_simulation;

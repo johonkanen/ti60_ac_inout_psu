@@ -14,6 +14,7 @@
         <efx:design_file name="../source/scope/test_signal_generator.vhd" version="default" library="default" />
         <efx:design_file name="../source/scope/scope_capture.vhd" version="default" library="default" />
         <efx:design_file name="../source/hyperram/async_fifo.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hyperram/hyperram_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/adc/ads7056.vhd" version="default" library="default" />
         <efx:design_file name="../source/adc/board_adc.vhd" version="default" library="default" />
         <efx:design_file name="../source/inverter/output_bridge_pkg.vhd" version="default" library="default" />
@@ -24,13 +25,14 @@
         <efx:design_file name="ethernet/tx_checksum_inserter.vhd" version="default" library="default" />
         <efx:design_file name="ethernet/tsemac_control.vhd" version="default" library="default" />
         <efx:design_file name="ethernet/ethernet_subsystem.vhd" version="default" library="default" />
-        <efx:design_file name="sapphire_subsystem.vhd" version="default" library="default" />
         <efx:design_file name="ad_subsystem.vhd" version="default" library="default" />
         <efx:design_file name="gate_power.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_fixed_point/fixed_dsp/fixed_dsp.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_fixed_point/fixed_dsp/arch_rtl_fixed_dsp.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_fixed_point/submodules/hVHDL_memory_library/vhdl2008/dp_ram_w_configurable_recrods.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_fixed_point/submodules/hVHDL_memory_library/vhdl2008/arch_rtl_dp_ram_w_configurable_records.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hyperram/hyperram_axi.vhd" version="default" library="default" />
+        <efx:design_file name="sapphire_subsystem.vhd" version="default" library="default" />
         <efx:design_file name="../source/measurements/fixed_format_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/measurements/scaler_channels_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/measurements/measurement_scaler.vhd" version="default" library="default" />
@@ -104,9 +106,6 @@
         <efx:ip instance_name="apb3_2_axi4_lite" path="ip/apb3_2_axi4_lite/settings.json" ooc="false">
             <efx:ip_src_file name="apb3_2_axi4_lite.v" />
         </efx:ip>
-        <efx:ip instance_name="hy0_ram" path="ip/hy0_ram/settings.json" ooc="false">
-            <efx:ip_src_file name="hy0_ram.sv" />
-        </efx:ip>
         <efx:ip instance_name="SapphireCore" path="ip/SapphireCore/settings.json" ooc="false">
             <efx:ip_src_file name="SapphireCore.v" />
         </efx:ip>
@@ -161,7 +160,7 @@
         <efx:param name="work_dir" value="work_pnr" value_type="e_string" />
         <efx:param name="verbose" value="off" value_type="e_bool" />
         <efx:param name="optimization_level" value="TIMING_2" value_type="e_option" />
-        <efx:param name="seed" value="1" value_type="e_integer" />
+        <efx:param name="seed" value="2" value_type="e_integer" />
         <efx:param name="placer_effort_level" value="3" value_type="e_option" />
         <efx:param name="max_threads" value="-1" value_type="e_integer" />
         <efx:param name="print_critical_path" value="10" value_type="e_integer" />

@@ -8,13 +8,20 @@ library ieee;
 -- HyperRAM (W959D8NFYA, x8, two 32 MB dies) behind an AXI3 port with a shared read/write
 -- address channel, for the Sapphire SoC's DDR port: the whole 64 MB for the CPU and the
 -- DMAs. One clock: the AXI port and the transactions run on the HyperRAM clock (CK
--- frequency, 200 MHz); only the read capture is in the phase shifted read clock.
+-- frequency, 200 MHz); only the pins' input registers are on the phase shifted read clock.
 --
 -- The pins and their timing are those of hyperram_ddr_controller: CK runs only while CS# is
 -- low, the command/address takes cycles 1 to 3 of a transaction, data starts in cycle
 -- 2*g_latency + 3 (fixed latency, the configuration registers' defaults), one 16 bit word a
--- cycle; read data is framed by RWDS in the read clock domain. CK stops after the last data
--- cycle of reads too: the memory never bursts past the words asked for.
+-- cycle. CK stops after the last data cycle of reads too: the memory never bursts past the
+-- words asked for.
+--
+-- Read data: the input DDIO registers at the pins are clocked by the read clock, the HyperRAM
+-- clock delayed by 0..1.75 ns (the calibrated phase, 8 steps of 0.25 ns). Their outputs go
+-- straight into a register on this clock a cycle later: a transfer between two clocks of
+-- one frequency at a known phase, which the timing constraints check (at most 3 ns from the
+-- input registers), so nothing crosses clock domains through pointers or synchronisers.
+-- The words are framed by RWDS from there, on this clock.
 --
 -- AXI:
 --   addresses are HyperRAM byte addresses (bits 25:0 used, the SoC maps the memory at
@@ -50,7 +57,8 @@ entity hyperram_axi is
         g_calibration_address_0 : natural := 0;                    -- byte addresses, 128 bytes each
         g_calibration_address_1 : natural := 16#3FFFF80#;
         g_default_phase      : natural range 0 to 7 := 5;
-        g_default_lo_first   : boolean := true
+        g_default_lo_first   : boolean := true;
+        g_word_count_start   : natural := 0           -- simulation: the word counters' start, to test their wrap
     );
     port(
         clock          : in std_logic;     -- HyperRAM clock, 0 degrees, and the AXI clock
@@ -86,11 +94,29 @@ entity hyperram_axi is
         calibration_passed : out boolean;
         status             : out std_logic_vector(31 downto 0);
         read_timeouts      : out unsigned(15 downto 0);
+        -- bits 3:0 the core's state, 7:4 the calibration's, 10:8 commands queued, 11 the head
+        -- one is a write, 12 it waits for its data, 13 a read waits for room, 31:16
+        -- transactions started (low 16 bits), 47:32 write beats buffered, 63:48 read beats
+        -- issued and not yet out
+        debug              : out std_logic_vector(63 downto 0);
+        -- more: 31:0 words expected and packed (low 16 bits each), 63:32 beats issued and
+        -- stored (low 16 bits each); 127:64 the first time the words packed differed from those
+        -- expected at a transaction's start: the transaction before it, 73:64 its words, 83:74
+        -- the capture's count when it finished, 84 a write, 85 timed out, 93:86 the difference
+        -- (packed less expected, signed), 120:96 its word address, 127:121 transactions; 159:128
+        -- the first beat stored that no read issued: the transactions counter, 191:160 the words
+        -- expected and packed then (low 16 bits each)
+        debug2             : out std_logic_vector(191 downto 0);
+        -- full counts: 31:0 words expected, 63:32 words packed, 95:64 padding words still to
+        -- come, 127:96 words captured, 159:128 padding words since the calibration, 191:160
+        -- words packed and 223:192 the words asked for at the first of them, 255:224 words
+        -- captured during writes
+        debug3             : out std_logic_vector(255 downto 0);
 
         phase_shift        : out pll_phase_shift_record;
         phase_shift_output : in natural range 0 to 4 := 3;   -- PLL output of the read clock
         fpga_out           : out hyperram_ddr_fpga_out_record;
-        read_clock         : in std_logic;
+        -- from the input DDIO registers, clocked by the read clock (the PLL's dynamic phase output)
         fpga_in            : in hyperram_ddr_fpga_in_record
     );
 end entity hyperram_axi;
@@ -103,21 +129,6 @@ architecture rtl of hyperram_axi is
     function to_std(b : boolean) return std_logic is
     begin
         if b then return '1'; else return '0'; end if;
-    end function;
-
-    function to_gray(u : unsigned) return unsigned is
-    begin
-        return u xor ('0' & u(u'left downto 1));
-    end function;
-
-    function from_gray(g : unsigned) return unsigned is
-        variable u : unsigned(g'range);
-    begin
-        u(g'left) := g(g'left);
-        for i in g'left-1 downto 0 loop
-            u(i) := u(i+1) xor g(i);
-        end loop;
-        return u;
     end function;
 
     -- the calibration pattern, beat i
@@ -181,11 +192,15 @@ architecture rtl of hyperram_axi is
     signal r_stored : unsigned(15 downto 0) := (others => '0');      -- beats into the buffer, ever
     signal r_taken  : unsigned(15 downto 0) := (others => '0');      -- beats read out of it, ever
 
-    -- words of reads expected (the core) and put into beats (the packer), and up to where
-    -- the packer pads with zeros after a timed out read
-    signal words_expected : unsigned(31 downto 0) := (others => '0');
-    signal words_packed   : unsigned(31 downto 0) := (others => '0');
-    signal pad_until      : unsigned(31 downto 0) := (others => '0');
+    -- words of reads expected (the core) and put into beats (the packer), for the debug
+    -- registers; after a timed out read, the words it lacks are padded with zeros: the core
+    -- asks for them (pad_start, pad_request), the packer counts them out
+    constant word_count_start : unsigned(31 downto 0) := to_unsigned(g_word_count_start, 32);
+    signal words_expected : unsigned(31 downto 0) := word_count_start;
+    signal words_packed   : unsigned(31 downto 0) := word_count_start;
+    signal pad_start      : boolean := false;
+    signal pad_request    : natural range 0 to 4*max_beats := 0;
+    signal pad_remaining  : natural range 0 to 4*max_beats := 0;
 
     ------------------------------------------------------------------------
     -- the core
@@ -209,6 +224,22 @@ architecture rtl of hyperram_axi is
 
     -- the transaction in progress
     signal head_progress : boolean := false;    -- the head command's progress is loaded
+    -- the next transaction, prepared from the head command
+    type transaction_record is record
+        write   : boolean;
+        id      : std_logic_vector(7 downto 0);
+        address : unsigned(22 downto 0);
+        beats   : natural range 1 to max_beats;
+        last    : boolean;
+    end record;
+    signal next_t   : transaction_record := (false, (others => '0'), (others => '0'), 1, false);
+    signal prepared : boolean := false;
+    -- the reset (the PLL not locked, asynchronous) through two registers, so every register
+    -- here sees it at the same clock
+    signal reset_sync : std_logic_vector(1 downto 0) := "11";
+    signal reset_i    : boolean := true;
+    attribute async_reg : boolean;
+    attribute async_reg of reset_sync : signal is true;
     signal head_address  : unsigned(22 downto 0) := (others => '0');
     signal head_left     : natural range 0 to 256 := 0;
     signal is_write      : boolean := false;
@@ -224,6 +255,18 @@ architecture rtl of hyperram_axi is
     signal timed_out     : boolean := false;
     signal recovery_count : natural range 0 to g_recovery_clocks + g_read_timeout := 0;
     signal timeouts      : unsigned(15 downto 0) := (others => '0');
+    signal transactions  : unsigned(15 downto 0) := (others => '0');
+    signal waits_for_data, waits_for_room : boolean := false;
+    signal mismatch      : boolean := false;
+    signal words_captured : unsigned(31 downto 0) := (others => '0');
+    signal pad_words      : unsigned(31 downto 0) := (others => '0');
+    signal first_pad      : std_logic_vector(63 downto 0) := (others => '0');
+    signal write_captures : unsigned(31 downto 0) := (others => '0');
+    signal mismatch_snapshot : std_logic_vector(63 downto 0) := (others => '0');
+    signal finished_count : natural range 0 to 4*max_beats := 0;    -- the capture's count at the last finish
+    signal last_address   : unsigned(22 downto 0) := (others => '0');
+    signal anomaly       : boolean := false;
+    signal anomaly_snapshot : std_logic_vector(63 downto 0) := (others => '0');
 
     constant data_cycle  : natural := 2*g_latency + 3;
 
@@ -244,35 +287,19 @@ architecture rtl of hyperram_axi is
     signal shift_r       : std_logic_vector(2 downto 0) := (others => '0');
     signal shift_enable_r : std_logic := '0';
 
-    -- transaction start and expected words to the read clock domain, words received back
-    signal capture_toggle : std_logic := '0';
-    signal capture_enable : std_logic := '0';
+    -- the capture: started by the core (its word count reset), enabled around the data
+    signal capture_start  : boolean := false;
+    signal capture_enable : boolean := false;
     signal capture_length : natural range 1 to 4*max_beats := 4;
-    signal received_gray_sync1, received_gray_sync2 : unsigned(9 downto 0) := (others => '0');
-
-    ------------------------------------------------------------------------
-    -- read clock domain
-    signal toggle_sync    : std_logic_vector(2 downto 0) := (others => '0');
-    signal enable_sync    : std_logic_vector(1 downto 0) := (others => '0');
-    signal lo_first_sync  : std_logic_vector(1 downto 0) := (others => '0');
-    signal capture_count  : unsigned(9 downto 0) := (others => '0');
-    signal capture_gray   : unsigned(9 downto 0) := (others => '0');
+    signal capture_count  : natural range 0 to 4*max_beats := 0;
+    signal sampled        : hyperram_ddr_fpga_in_record := ((others => '0'), (others => '0'), '0', '0');
     signal previous_rwds  : std_logic := '0';
     signal previous_dq    : std_logic_vector(7 downto 0) := (others => '0');
-    signal word_write     : boolean := false;
-    signal word_in        : std_logic_vector(15 downto 0) := (others => '0');
-
-    -- the words into the clock domain
-    signal word_read      : boolean := false;
-    signal word_out       : std_logic_vector(15 downto 0);
-    signal word_empty     : boolean;
-
-    attribute async_reg : boolean;
-    attribute async_reg of received_gray_sync1, received_gray_sync2, toggle_sync, enable_sync, lo_first_sync : signal is true;
+    signal word_valid     : boolean := false;
+    signal word_data      : std_logic_vector(15 downto 0) := (others => '0');
 
     ------------------------------------------------------------------------
     -- the packer and the R channel
-    signal word_valid   : boolean := false;          -- word_out valid this clock
     signal packed       : std_logic_vector(63 downto 0) := (others => '0');
     signal packed_words : natural range 0 to 3 := 0;
 
@@ -292,6 +319,14 @@ architecture rtl of hyperram_axi is
 
 begin
 
+    synchronise_reset : process(clock)
+    begin
+        if rising_edge(clock) then
+            reset_sync <= reset_sync(0) & to_std(reset);
+            reset_i    <= reset_sync(1) = '1';
+        end if;
+    end process;
+
     phase_shift.shift        <= shift_r;
     phase_shift.shift_select <= std_logic_vector(to_unsigned(2**phase_shift_output, 5)) when shift_enable_r = '1' else "00000";
     phase_shift.shift_enable <= shift_enable_r;
@@ -301,6 +336,18 @@ begin
     status <= x"0" & to_std(lo_first) & std_logic_vector(to_unsigned(read_phase, 3))
               & pass_map(15 downto 8) & pass_map(7 downto 0) & "000000" & to_std(cal_failed) & to_std(calibrated);
     read_timeouts <= timeouts;
+    debug3 <= std_logic_vector(write_captures) & first_pad & std_logic_vector(pad_words)
+              & std_logic_vector(words_captured) & std_logic_vector(to_unsigned(pad_remaining, 32))
+              & std_logic_vector(words_packed) & std_logic_vector(words_expected);
+    debug2 <= anomaly_snapshot & mismatch_snapshot
+              & std_logic_vector(r_issued) & std_logic_vector(r_stored)
+              & std_logic_vector(words_expected(15 downto 0)) & std_logic_vector(words_packed(15 downto 0));
+    debug <= std_logic_vector(r_issued - r_taken) & std_logic_vector(w_written - w_consumed)
+             & std_logic_vector(transactions) & "00" & to_std(waits_for_room) & to_std(waits_for_data)
+             & to_std(next_t.write)
+             & std_logic_vector(command_tail - command_head)
+             & std_logic_vector(to_unsigned(calibration_states'pos(calibration_state), 4))
+             & std_logic_vector(to_unsigned(core_states'pos(core_state), 4));
 
 ------------------------------------------------------------------------
     -- the address channel
@@ -325,7 +372,7 @@ begin
                     writes_accepted <= writes_accepted + 1;
                 end if;
             end if;
-            if reset then
+            if reset_i then
                 command_tail    <= (others => '0');
                 writes_accepted <= (others => '0');
             end if;
@@ -348,7 +395,7 @@ begin
                 write_ram_a_in.write_requested <= '1';
                 w_written <= w_written + 1;
             end if;
-            if reset then
+            if reset_i then
                 w_written <= (others => '0');
             end if;
         end if;
@@ -370,7 +417,7 @@ begin
             if b_ready = '1' and b_tail /= b_head then
                 b_head <= b_head + 1;
             end if;
-            if reset then
+            if reset_i then
                 b_head <= (others => '0');
             end if;
         end if;
@@ -384,7 +431,6 @@ begin
         variable command    : command_record;
         variable word       : natural range 0 to 3;
         variable beat       : std_logic_vector(71 downto 0);
-        variable received   : natural;
         variable best_start, best_length, run_start, run_length : natural;
         variable best_lo_first : boolean;
         variable start_one  : boolean;
@@ -393,6 +439,17 @@ begin
         procedure start(write, calibration : boolean; addr : unsigned(22 downto 0); count : natural;
                         id : std_logic_vector(7 downto 0); last : boolean) is
         begin
+            -- the words of the reads so far are all in, unless padding is still to come
+            if not mismatch and calibrated and words_packed /= words_expected and pad_remaining = 0 then
+                mismatch <= true;
+                mismatch_snapshot <= std_logic_vector(transactions(6 downto 0))
+                    & std_logic_vector(last_address & "00")
+                    & "00" & std_logic_vector(resize(signed(words_packed - words_expected), 8))
+                    & to_std(timed_out) & to_std(is_write)
+                    & std_logic_vector(to_unsigned(finished_count, 10))
+                    & std_logic_vector(to_unsigned(t_words mod 1024, 10));
+            end if;
+            last_address   <= addr;
             is_write       <= write;
             is_calibration <= calibration;
             t_beats        <= count;
@@ -403,8 +460,9 @@ begin
                                                     address => to_integer(addr & "00"));
             last_cycle     <= data_cycle + words_of(count) - 1;
             capture_length <= words_of(count);
-            capture_enable <= '0';
-            capture_toggle <= not capture_toggle;
+            capture_enable <= false;
+            capture_start  <= true;
+            transactions   <= transactions + 1;
             timed_out      <= false;
             cycle          <= 0;
             cs_n_r         <= '0';          -- cycle 0, CK still stopped
@@ -424,9 +482,8 @@ begin
             write_ram_b_in.write_requested   <= '0';
             fpga_out.reset_n <= reset_n_r;
 
-            received_gray_sync1 <= capture_gray;
-            received_gray_sync2 <= received_gray_sync1;
-            received := to_integer(from_gray(received_gray_sync2));
+            capture_start <= false;
+            pad_start     <= false;
 
             -- CK of the next cycle, the CK pin register samples this a quarter cycle later
             ck_lo_r <= to_std(ck_enable);
@@ -449,6 +506,33 @@ begin
             -- the next write beat comes from the buffer, or the pattern
             if write_ram_b_out.data_is_ready = '1' then
                 beat_next <= write_ram_b_out.data;
+            end if;
+
+            -- the next transaction prepared a clock ahead from the head command: at most to the
+            -- next 1 KB boundary; the command leaves the queue with its last one
+            if calibrated and not prepared and command_tail /= command_head then
+                command := commands(to_integer(command_head(1 downto 0)));
+                if head_progress then
+                    address := head_address;
+                    beats   := head_left;
+                else
+                    address := command.beat_address;
+                    beats   := command.beats;
+                end if;
+                n := max_beats - to_integer(address(6 downto 0));
+                if beats < n then
+                    n := beats;
+                end if;
+                next_t   <= (command.write, command.id, address, n, n = beats);
+                prepared <= true;
+                if n = beats then
+                    head_progress <= false;
+                    command_head  <= command_head + 1;
+                else
+                    head_progress <= true;
+                    head_address  <= address + n;
+                    head_left     <= beats - n;
+                end if;
             end if;
 
             CASE core_state is
@@ -554,40 +638,26 @@ begin
 
                     else
                         ------------------------------------------------------------
-                        -- the head command, a transaction at most to the next 1 KB boundary
+                        -- the prepared transaction (see below) once what it needs is there:
+                        -- all its write data, or room for all its read data
                         operational <= true;
-                        command := commands(to_integer(command_head(1 downto 0)));
-                        if command_tail /= command_head then
-                            if head_progress then
-                                address := head_address;
-                                beats   := head_left;
-                            else
-                                address := command.beat_address;
-                                beats   := command.beats;
-                            end if;
-                            n := max_beats - to_integer(address(6 downto 0));
-                            if beats < n then
-                                n := beats;
-                            end if;
-                            if command.write then
-                                start_one := w_written - w_consumed >= n;
+                        if prepared then
+                            if next_t.write then
+                                start_one := w_written - w_consumed >= next_t.beats;
+                                waits_for_data <= not start_one;
+                                waits_for_room <= false;
                                 if start_one then
                                     write_ram_b_in.address <= w_consumed(8 downto 0);
                                     write_ram_b_in.read_is_requested <= '1';
                                 end if;
                             else
-                                start_one := r_issued - r_taken + n <= 256 and meta_tail - meta_head < 8;
+                                start_one := r_issued - r_taken + next_t.beats <= 256 and meta_tail - meta_head < 8;
+                                waits_for_room <= not start_one;
+                                waits_for_data <= false;
                             end if;
                             if start_one then
-                                start(command.write, false, address, n, command.id, n = beats);
-                                if n = beats then
-                                    head_progress <= false;
-                                    command_head  <= command_head + 1;
-                                else
-                                    head_progress <= true;
-                                    head_address  <= address + n;
-                                    head_left     <= beats - n;
-                                end if;
+                                start(next_t.write, false, next_t.address, next_t.beats, next_t.id, next_t.last);
+                                prepared <= false;
                             end if;
                         end if;
                     end if;
@@ -602,9 +672,10 @@ begin
                         dq_oe_r <= '1';
                     elsif not is_write then
                         dq_oe_r <= '0';
-                        -- the capture starts a few cycles before the first data word
-                        if cycle + 4 >= data_cycle then
-                            capture_enable <= '1';
+                        -- the capture starts a cycle before the first data word reaches the pins:
+                        -- it is two clocks later behind the input and transfer registers
+                        if n + 1 >= data_cycle then
+                            capture_enable <= true;
                         end if;
                         -- CK stops after the last data cycle, so the memory never bursts past
                         -- the words asked for (across a die boundary); CS# stays low until they
@@ -612,8 +683,8 @@ begin
                         if n = last_cycle then
                             ck_enable <= false;
                         end if;
-                        if (n >= data_cycle and received >= t_words) or n > last_cycle + g_read_timeout then
-                            timed_out  <= received < t_words;
+                        if (n >= data_cycle and capture_count >= t_words) or n > last_cycle + g_read_timeout then
+                            timed_out  <= capture_count < t_words;
                             ck_enable  <= false;
                             core_state <= finish;
                         end if;
@@ -663,7 +734,8 @@ begin
                     cs_n_r    <= '1';
                     dq_oe_r   <= '0';
                     rwds_oe_r <= '0';
-                    capture_enable <= '0';
+                    capture_enable <= false;
+                    finished_count <= capture_count;
                     recovery_count <= 0;
                     if is_write then
                         if not is_calibration then
@@ -683,7 +755,8 @@ begin
                     -- still under way are let in before the rest of the beats are padded
                     recovery_count <= recovery_count + 1;
                     if timed_out and recovery_count = g_read_timeout then
-                        pad_until <= words_expected;
+                        pad_request <= t_words - capture_count;
+                        pad_start   <= true;
                     end if;
                     if recovery_count >= g_recovery_clocks and (not timed_out or recovery_count > g_read_timeout) then
                         core_state <= idle;
@@ -698,7 +771,7 @@ begin
                 cal_beat <= cal_beat + 1;
             end if;
 
-            if reset then
+            if reset_i then
                 core_state        <= reset_low;
                 counter           <= 0;
                 operational       <= false;
@@ -709,12 +782,12 @@ begin
                 pass_map          <= (others => '0');
                 command_head      <= (others => '0');
                 head_progress     <= false;
+                prepared          <= false;
                 b_tail            <= (others => '0');
                 meta_tail         <= (others => '0');
                 w_consumed        <= (others => '0');
                 r_issued          <= (others => '0');
-                words_expected    <= (others => '0');
-                pad_until         <= (others => '0');
+                words_expected    <= word_count_start;
                 cs_n_r            <= '1';
                 ck_enable         <= false;
                 dq_oe_r           <= '0';
@@ -734,33 +807,27 @@ begin
     fpga_out.ck_lo   <= ck_lo_r;
 
 ------------------------------------------------------------------------
-    -- read capture: RWDS is high with the first byte of a word and low with the second.
-    -- The two samples of each read clock cycle are put in time order, then a word starts at
-    -- each sample with RWDS high: either within this cycle, or at the later sample of the
-    -- previous cycle.
-    capture : process(read_clock)
+    -- read capture: the input registers' samples taken on this clock (the transfer from the
+    -- read clock), then framed: RWDS is high with the first byte of a word and low with the
+    -- second. The two samples of each cycle are put in time order, then a word starts at each
+    -- sample with RWDS high: either within this cycle, or at the later sample of the previous
+    -- cycle. At most one word a clock, straight to the packer.
+    capture : process(clock)
         variable word      : std_logic_vector(15 downto 0);
         variable has_word  : boolean;
         variable first_dq, second_dq     : std_logic_vector(7 downto 0);
         variable first_rwds, second_rwds : std_logic;
     begin
-        if rising_edge(read_clock) then
-            toggle_sync   <= toggle_sync(1 downto 0) & capture_toggle;
-            enable_sync   <= enable_sync(0) & capture_enable;
-            lo_first_sync <= lo_first_sync(0) & to_std(lo_first);
-            word_write    <= false;
+        if rising_edge(clock) then
+            sampled    <= fpga_in;
+            word_valid <= false;
 
-            if toggle_sync(2) /= toggle_sync(1) then
-                capture_count <= (others => '0');
-                capture_gray  <= (others => '0');
-            end if;
-
-            if lo_first_sync(1) = '1' then
-                first_dq  := fpga_in.dq_lo;  first_rwds  := fpga_in.rwds_lo;
-                second_dq := fpga_in.dq_hi;  second_rwds := fpga_in.rwds_hi;
+            if lo_first then
+                first_dq  := sampled.dq_lo;  first_rwds  := sampled.rwds_lo;
+                second_dq := sampled.dq_hi;  second_rwds := sampled.rwds_hi;
             else
-                first_dq  := fpga_in.dq_hi;  first_rwds  := fpga_in.rwds_hi;
-                second_dq := fpga_in.dq_lo;  second_rwds := fpga_in.rwds_lo;
+                first_dq  := sampled.dq_hi;  first_rwds  := sampled.rwds_hi;
+                second_dq := sampled.dq_lo;  second_rwds := sampled.rwds_lo;
             end if;
 
             has_word := false;
@@ -774,23 +841,22 @@ begin
             previous_rwds <= second_rwds;
             previous_dq   <= second_dq;
 
-            if enable_sync(1) = '1' and has_word and capture_count < capture_length then
-                word_in       <= word;
-                word_write    <= true;
+            if capture_start then
+                capture_count <= 0;
+            elsif capture_enable and has_word and capture_count < capture_length then
+                word_data     <= word;
+                word_valid    <= true;
                 capture_count <= capture_count + 1;
-                capture_gray  <= to_gray(capture_count + 1);
+                words_captured <= words_captured + 1;
+                if is_write then
+                    write_captures <= write_captures + 1;
+                end if;
             end if;
         end if;
     end process;
 
-    u_words : entity work.async_fifo
-    generic map(g_width => 16, g_address_bits => 5)
-    port map(read_clock, word_write, word_in, open, clock, word_read, word_out, word_empty, open);
-
 ------------------------------------------------------------------------
     -- words into beats, into the read buffer; zeros for the words of a timed out read
-    word_read <= not word_empty;
-
     packer : process(clock)
         variable word     : std_logic_vector(15 downto 0);
         variable has_word : boolean;
@@ -798,19 +864,33 @@ begin
         if rising_edge(clock) then
             read_ram_a_in.write_requested   <= '0';
             read_ram_a_in.read_is_requested <= '0';
-            word_valid <= word_read and not word_empty;
-
             has_word := false;
             if word_valid then
-                word     := word_out;
+                word     := word_data;
                 has_word := true;
-            elsif word_empty and not word_valid and signed(pad_until - words_packed) > 0 then
+            elsif pad_remaining > 0 then
                 word     := (others => '0');
                 has_word := true;
+                pad_remaining <= pad_remaining - 1;
+                if calibrated then
+                    if pad_words = 0 then
+                        first_pad <= std_logic_vector(to_unsigned(pad_remaining, 32)) & std_logic_vector(words_packed);
+                    end if;
+                    pad_words <= pad_words + 1;
+                end if;
+            end if;
+
+            -- a timed out read's missing words, asked for once its words are all in
+            if pad_start then
+                pad_remaining <= pad_request;
             end if;
 
             if has_word then
                 words_packed <= words_packed + 1;
+                -- synthesis translate_off
+                assert signed(words_expected - words_packed) > 0
+                    report "hyperram_axi: a word no read asked for" severity error;
+                -- synthesis translate_on
                 packed(16*packed_words + 7 downto 16*packed_words)      <= word(15 downto 8);
                 packed(16*packed_words + 15 downto 16*packed_words + 8) <= word(7 downto 0);
                 if packed_words = 3 then
@@ -819,13 +899,20 @@ begin
                     read_ram_a_in.data            <= word(7 downto 0) & word(15 downto 8) & packed(47 downto 0);
                     read_ram_a_in.write_requested <= '1';
                     r_stored <= r_stored + 1;
+                    -- a beat no read asked for
+                    if not anomaly and signed(r_stored - r_issued) >= 0 then
+                        anomaly <= true;
+                        anomaly_snapshot <= std_logic_vector(words_expected(15 downto 0)) & std_logic_vector(words_packed(15 downto 0))
+                                            & x"0000" & std_logic_vector(transactions);
+                    end if;
                 else
                     packed_words <= packed_words + 1;
                 end if;
             end if;
 
-            if reset then
-                words_packed <= (others => '0');
+            if reset_i then
+                words_packed  <= word_count_start;
+                pad_remaining <= 0;
                 packed_words <= 0;
                 r_stored     <= (others => '0');
             end if;
@@ -887,7 +974,7 @@ begin
             end if;
             out_requested <= in_flight;
 
-            if reset then
+            if reset_i then
                 out_head     <= (others => '0');
                 out_tail     <= (others => '0');
                 beat_in_meta <= 0;

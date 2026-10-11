@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # Generates tsemac_soc.peri.xml with the Efinity Interface Designer API.
-# Pins and PLLs are board_test's (see ../board_test/gen_peri.py); the HyperRAM and SPI flash
-# pins are configured the way Efinix's TSEMAC example design configures its own, for the
-# Efinix HyperRAM controller and the SoC's SPI master.
+# Pins and PLLs are board_test's (see ../board_test/gen_peri.py), the HyperRAM's IO registers
+# too, for our controller (hyperram_axi, as board_test's hyperram_ddr_controller); the SPI
+# flash pins are configured the way Efinix's TSEMAC example design configures them, for the
+# SoC's SPI master.
 # Run with Efinity's python after sourcing setup.sh (build.sh does this).
 import os
 import sys
@@ -27,7 +28,7 @@ design.set_gpio_unused_state("INPUT_WEAK_PULLUP")
 #   0 ram_clk          200 MHz  HyperRAM, also the SoC's system and memory clock
 #   1 io_tseClk        125 MHz  TSEMAC and RGMII transmit, also the SoC's peripheral clock
 #   2 ram_clk90        200 MHz  90 degrees, the HyperRAM CK pin
-#   3 ram_clk_cal      200 MHz  dynamic phase, HyperRAM read capture (calibrated by the IP)
+#   3 ram_clk_cal      200 MHz  dynamic phase, HyperRAM read capture (calibrated by hyperram_axi)
 # The PLL's output 4 reaches IO registers only, so there is no separate 100 MHz.
 design.create_pll_input_clock_gpio("ref_clock")
 design.assign_pkg_pin("ref_clock", "C14")
@@ -73,9 +74,10 @@ design.create_output_gpio("system_uart_0_io_txd")
 design.set_property("system_uart_0_io_txd", "IO_STANDARD", "3.3_V_LVCMOS")
 design.assign_pkg_pin("system_uart_0_io_txd", "R3")
 
-# HyperRAM W959D8NFYA (x8), board_test's pins, the IO registers of the Efinix controller:
-# outputs on ram_clk (data and its enable on the falling edge), CK from ram_clk90 inverted,
-# inputs on the calibrated ram_clk_cal
+# HyperRAM W959D8NFYA (x8), board_test's pins and IO registers (see hyperram_axi): DQ, RWDS
+# through DDIO resync registers on ram_clk, both halves taken on its rising edge, the hi half
+# driven first; CK from ram_clk90 inverted at the pin; inputs on the calibrated ram_clk_cal,
+# presented together on its rising edge
 def hbc_output(name, pin, register, clock="ram_clk", inverted=False, ddio=False):
     design.create_output_gpio(name)
     properties = {"IO_STANDARD": "1.8_V_LVCMOS"}
@@ -88,25 +90,27 @@ def hbc_output(name, pin, register, clock="ram_clk", inverted=False, ddio=False)
     design.set_property(name, properties)
     design.assign_resource(name, pin)
 
-def hbc_inout(name, pin, bus, index, out_inverted, pull):
+def hbc_inout(name, pin, bus, index, pull):
     design.create_inout_gpio(name)
+    # the DDIO register modes first: the HI/LO pin names only exist in DDIO mode
     design.set_property(name, {"IO_STANDARD": "1.8_V_LVCMOS", "IN_REG": "DDIO_RESYNC",
-                               "OUT_REG": "DDIO", "OE_REG": "REG", "PULL_OPTION": pull})
+                               "OUT_REG": "DDIO_RESYNC", "OE_REG": "REG", "PULL_OPTION": pull})
     design.set_property(name, {"IN_HI_PIN": f"{bus}_IN_HI[{index}]", "IN_LO_PIN": f"{bus}_IN_LO[{index}]",
                                "IN_CLK_PIN": "ram_clk_cal",
                                "OUT_HI_PIN": f"{bus}_OUT_HI[{index}]", "OUT_LO_PIN": f"{bus}_OUT_LO[{index}]",
                                "OUT_CLK_PIN": "ram_clk", "OE_PIN": f"{bus}_OE[{index}]"})
-    if out_inverted:
-        design.set_property(name, {"IS_OUTCLK_INVERTED": "1"})
     design.assign_resource(name, pin)
+    names = design.get_property(name, ["IN_HI_PIN", "OUT_HI_PIN", "OE_PIN"])
+    if names["OE_PIN"] != f"{bus}_OE[{index}]" or names["IN_HI_PIN"] != f"{bus}_IN_HI[{index}]":
+        raise SystemExit(f"pin names of {name} not applied: {names}")
 
-hbc_output("hbc_ck_p", "GPIOL_N_16", "DDIO", clock="ram_clk90", inverted=True, ddio=True)
+hbc_output("hbc_ck_p", "GPIOL_N_16", "DDIO_RESYNC", clock="ram_clk90", inverted=True, ddio=True)
 hbc_output("hbc_cs_n", "GPIOL_P_18", "REG")
 hbc_output("hbc_rst_n", "GPIOL_P_17", None)
-hbc_inout("hbc_rwds", "GPIOL_P_15", "hbc_rwds", 0, out_inverted=False, pull="WEAK_PULLUP")
+hbc_inout("hbc_rwds", "GPIOL_P_15", "hbc_rwds", 0, pull="WEAK_PULLUP")
 for i, pin in enumerate(["GPIOL_P_14", "GPIOL_N_09", "GPIOL_N_17", "GPIOL_N_15",
                          "GPIOL_P_16", "GPIOL_N_14", "GPIOL_N_10", "GPIOL_P_10"]):
-    hbc_inout(f"hbc_dq{i}", pin, "hbc_dq", i, out_inverted=True, pull="WEAK_PULLDOWN")
+    hbc_inout(f"hbc_dq{i}", pin, "hbc_dq", i, pull="WEAK_PULLDOWN")
 
 # ethernet PHY PEF7071 management interface, 3.3 V banks
 design.create_output_gpio("phy_mdc")

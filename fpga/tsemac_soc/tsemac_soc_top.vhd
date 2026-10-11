@@ -229,6 +229,20 @@ architecture rtl of tsemac_soc_top is
     signal sdm_data                     : std_logic_vector(0 to 2);
 
     signal memory_ready     : std_logic;
+    signal hyperram_status   : std_logic_vector(31 downto 0);
+    signal hyperram_timeouts : std_logic_vector(15 downto 0);
+    signal hyperram_debug    : std_logic_vector(63 downto 0);
+    signal hyperram_debug2   : std_logic_vector(191 downto 0);
+    signal hyperram_debug3   : std_logic_vector(255 downto 0);
+    signal hyperram_sync3    : std_logic_vector(255 downto 0) := (others => '0');
+    type hyperram_words2 is array (0 to 1) of std_logic_vector(191 downto 0);
+    signal hyperram_sync2   : hyperram_words2 := (others => (others => '0'));
+    -- the same in io_tseClk, twice registered: for reading, they change slowly or not at all
+    type hyperram_words is array (0 to 1) of std_logic_vector(31 + 16 + 64 downto 0);
+    signal hyperram_sync    : hyperram_words := (others => (others => '0'));
+    attribute async_reg : boolean;
+    attribute async_reg of hyperram_sync : signal is true;
+    attribute async_reg of hyperram_sync2 : signal is true;
     signal ethernet_speed   : std_logic_vector(2 downto 0);
     signal ethernet_dma_interrupts : std_logic_vector(1 downto 0);
     signal phy_reset        : std_logic;
@@ -319,6 +333,11 @@ begin
         ,scope_tlast         => scope_tlast
 
         ,memory_ready            => memory_ready
+        ,hyperram_status         => hyperram_status
+        ,hyperram_timeouts       => hyperram_timeouts
+        ,hyperram_debug          => hyperram_debug
+        ,hyperram_debug2         => hyperram_debug2
+        ,hyperram_debug3         => hyperram_debug3
         ,ethernet_speed          => ethernet_speed
         ,ethernet_dma_interrupts => ethernet_dma_interrupts
         ,phy_reset               => phy_reset
@@ -587,12 +606,33 @@ begin
 
     -- the commit this image was built from (image_role_pkg, written by build.sh), register 1335:
     -- bits 27..0 its hash's first 7 hex digits, bit 31 the tree had changes
+    -- and the HyperRAM controller's (hyperram_axi) calibration status at 1336, read timeouts
+    -- at 1337, its debug word at 1338 (low half) and 1339
     process(io_tseClk)
+        variable h : std_logic_vector(111 downto 0);
     begin
         if rising_edge(io_tseClk) then
+            hyperram_sync <= (hyperram_status & hyperram_timeouts & hyperram_debug, hyperram_sync(0));
+            h := hyperram_sync(1);
             init_bus(bus_from_version);
             connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1335,
                 std_logic_vector(to_unsigned(image_git_dirty * 8, 4)) & std_logic_vector(to_unsigned(image_git_hash, 28)));
+            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1336, h(111 downto 80));
+            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1337, x"0000" & h(79 downto 64));
+            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1338, h(31 downto 0));
+            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1339, h(63 downto 32));
+            -- more of hyperram_axi's counters at 1360..1365 (debug2)
+            hyperram_sync2 <= (hyperram_debug2, hyperram_sync2(0));
+            for k in 0 to 5 loop
+                connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1360 + k,
+                    hyperram_sync2(1)(32*k + 31 downto 32*k));
+            end loop;
+            -- and the full counts at 1370..1377 (debug3): read when the controller is idle
+            hyperram_sync3 <= hyperram_debug3;
+            for k in 0 to 7 loop
+                connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1370 + k,
+                    hyperram_sync3(32*k + 31 downto 32*k));
+            end loop;
         end if;
     end process;
 
