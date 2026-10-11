@@ -117,7 +117,13 @@ item when it is done; the commit that does it says so.
   the scope stream's ring there (2026-10-11), the Ethernet DMA's reads from it came 2 bytes
   (one HyperRAM clock) off now and then, and the board crashed or hung within minutes, also
   when the CPU's stacks were there; the same firmware with the ring on the first die ran clean.
-  First suspect: the read capture's calibration (one phase, set at power-up, 200 MHz) fits the
-  first die only. For now the firmware stays on the first die (devicetree RAM up to
+  What fails is DMA on the second die only: the CPU wrote and read 800 MB there without an
+  error, also alternating dies every line, and also while the stream ran from the first die;
+  the capture DMA's writes there slipped a 16-bit word inside a 256 byte burst, the Ethernet
+  DMA's reads a word at a segment's start, also with 16 byte aligned bursts. The SoC passes
+  the masters' addresses to the controller as the CPU's (no masking); what differs is the
+  burst shape and the AXI ids, so the cause is likely inside Efinix's (encrypted) HyperRAM
+  controller: next, a newer IP version, other calibration settings or a slower RAM clock, or
+  asking Efinix. For now the firmware stays on the first die (devicetree RAM up to
   0x02000000, stream ring 10 MB = 168 ms at 3.9 MS/s); the second die would give a 32 MB ring.
   A crash now restarts the firmware (main.c), counted with the network's restarts.
