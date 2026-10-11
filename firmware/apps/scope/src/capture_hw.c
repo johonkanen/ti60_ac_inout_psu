@@ -689,7 +689,12 @@ uint32_t capture_output_status(void)
 
 void capture_boost_set(int reg, double value)
 {
-	sys_write32(to_fixed(value), BOOST_REGISTER(reg));
+	/* the gains (2 kp, 3 ki) with 24 fractional bits, the rest 20 */
+	if (reg == 2 || reg == 3) {
+		sys_write32((uint32_t)(int32_t)lround(value * (1 << 24)), BOOST_REGISTER(reg));
+	} else {
+		sys_write32(to_fixed(value), BOOST_REGISTER(reg));
+	}
 }
 
 void capture_boost_start(void)

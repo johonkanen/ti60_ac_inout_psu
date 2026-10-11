@@ -8,6 +8,7 @@ library ieee;
     use work.dhb_modulator_pkg.all;
     use work.fixed_format_pkg.all;
     use work.scaler_channels_pkg.all;
+    use work.output_control_program_pkg.boost_max_readings;
 
 -- The ti60_ac_psu control board's FPGA design, for Zephyr on the Sapphire SoC:
 --   sapphire_subsystem  the Efinix IP cores: the Sapphire SoC with the HyperRAM as its main
@@ -38,7 +39,9 @@ library ieee;
 --                       closed loop's reference in the output test's waveform mode (1200..)
 --   output_control_processor
 --                       the output filter's observer (1160..) and the output voltage's
---                       cascaded control (1180..) on a microprogram processor
+--                       cascaded control (1180..) on a microprogram processor, which runs the
+--                       input boost's voltage control too
+--   input_boost_control the input bridge as a boost from a DC source (1260..)
 -- The relays are held low.
 -- The transmit stream fills in IPv4, TCP, UDP and ICMP checksums on its way to the MAC
 -- (ethernet/ethernet_subsystem.vhd, ethernet/tx_checksum_inserter.vhd).
@@ -198,7 +201,13 @@ architecture rtl of tsemac_soc_top is
     signal input_probe          : scope_sample;
     signal bus_from_boost       : fpga_interconnect_record := init_fpga_interconnect;
     signal boost_leg1, boost_leg2 : dhb_leg_gates;
-    signal boost_probe, boost_i_ref_probe, boost_duty_probe : scope_sample;
+    signal boost_probe          : scope_sample;
+    -- the boost's voltage control on the output control's core
+    signal boost_request, boost_reset, boost_ready : boolean;
+    signal boost_v_sum, boost_v_ref, boost_ramp, boost_d_half : fixed_number;
+    signal boost_count          : natural range 0 to boost_max_readings;
+    signal boost_kp, boost_ki   : signed(31 downto 0);
+    signal boost_duty, boost_on_half, boost_target, boost_v : fixed_number;
     signal boost_running        : boolean;
     signal bus_from_lcd         : fpga_interconnect_record := init_fpga_interconnect;
     signal bus_from_touch       : fpga_interconnect_record := init_fpga_interconnect;
@@ -559,8 +568,8 @@ begin
     );
 
     -- the input bridge as a boost converter from a DC source (input_boost_control.vhd, registers
-    -- at 1260..): only leg 2's low side switching, the link's voltage held by a slow voltage PI on
-    -- the bridge's output current (iac_in * vac_in / vdc_in)
+    -- at 1260..): only leg 2's low side switching, the link's voltage held by a slow voltage PI
+    -- straight to the duty, run on the output control's microprogram core
     u_input_boost : entity work.input_boost_control
     generic map(g_base_address => 1260)
     port map(
@@ -575,8 +584,20 @@ begin
         ,running_out    => boost_running
         ,leg1           => boost_leg1
         ,leg2           => boost_leg2
-        ,i_ref_probe    => boost_i_ref_probe
-        ,duty_probe     => boost_duty_probe
+        ,request        => boost_request
+        ,reset          => boost_reset
+        ,v_sum          => boost_v_sum
+        ,v_count        => boost_count
+        ,v_ref          => boost_v_ref
+        ,ramp           => boost_ramp
+        ,d_half         => boost_d_half
+        ,kp             => boost_kp
+        ,ki             => boost_ki
+        ,ready          => boost_ready
+        ,duty_in        => boost_duty
+        ,on_half        => boost_on_half
+        ,target_in      => boost_target
+        ,v_mean_in      => boost_v
         ,probe          => boost_probe
     );
 
@@ -716,6 +737,20 @@ begin
         ,ready          => control_ready
         ,observer_probes => observer_probes
         ,control_probes  => control_probes
+        ,boost_request   => boost_request
+        ,boost_reset     => boost_reset
+        ,boost_v_sum     => boost_v_sum
+        ,boost_count     => boost_count
+        ,boost_v_ref     => boost_v_ref
+        ,boost_ramp      => boost_ramp
+        ,boost_d_half    => boost_d_half
+        ,boost_kp        => boost_kp
+        ,boost_ki        => boost_ki
+        ,boost_ready     => boost_ready
+        ,boost_duty      => boost_duty
+        ,boost_on_half   => boost_on_half
+        ,boost_target    => boost_target
+        ,boost_v         => boost_v
     );
     output_inu_leg1_hi     <= output_leg1.high;
     output_inu_leg1_low    <= output_leg1.low;

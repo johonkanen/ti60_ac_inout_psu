@@ -5,23 +5,23 @@ item when it is done; the commit that does it says so.
 
 ## Input bridge (boost from a DC source)
 
-- **The boost does not regulate on the board.** `input_boost_control.vhd` (registers 1260)
-  passes its testbench, but on the board iac_in's period mean (about 0.1 A at 4 % duty) does
-  not follow the current that charges the primary DC link (its rise needs about 0.5 A or more
-  at the estimated 1.3 mF), so the current loop winds the duty up to d_max and the link
-  overshoots to the overvoltage stop. Likely cause: the capacitor that compensates the
-  iac_in shunt's stray inductance is missing. Blocked until it is fitted.
-- When resuming:
-  1. check that iac_in's period mean matches C dv/dt with a short 1 MS/s capture at low duty;
-  2. add a peak current cutoff on the raw sigma-delta current, and start with d_max about 0.05;
-  3. move the control to the microprogram processor with observers, as the output voltage
-     control is, to deal with the measurement noise (decided: together, once the capacitor is
-     in). Sharing the output's core: it is ~11 % busy (observer + control 270 clocks of the
-     period's 3125); the boost's step ~150-250 clocks; 1/vdc by a Newton step a period instead
-     of the lut_divider; program RAM to 1024 words; the PWM and every stop stay in logic;
-     ~3k logic cells freed. Keep the current loop on the bridge's DC
-     side current, iac_in * (vac_in / vdc_in), and the voltage loop slow (well below 100 Hz) so
-     an AC input's 100 Hz ripple needs no new voltage controller.
+- **The boost is now a voltage control alone; it regulates on the board but slowly.** The
+  current loop could not work: iac_in's period mean (about 0.1 A at 4 % duty) did not follow
+  the current that charges the primary DC link, too noisy and likely missing the shunt's
+  compensation capacitor. `input_boost_control.vhd` (registers 1260) now runs a voltage PI
+  from the link's period mean straight to the duty, its step a program on the output
+  control's microprogram core (`output_control_program_pkg`'s boost programs); the current is
+  only shown. The duty is capped at 0.2 in the FPGA whatever d_max says; the overvoltage stop
+  needs 8 readings in a row (single readings carry the switching's noise).
+  On the board (2026-10-11, `input_boost_test.py --d-max 0.2 --limit 115`): 94.6 -> 105 ->
+  112 -> 105 V held within +-0.3 V (1 ms means), no trips; duty 0.066 at 105 V, 0.086 at
+  112 V, about three times the testbench's 15 uH DCM model's, so the loop's gain is a third
+  of the model's: the crossover ~1-4 Hz instead of 7-23 Hz. The start takes ~0.4 s to 105 V
+  (the reference's ramp 21 ms), the step to 112 V ~0.4 s with 1.5 V overshoot. Next:
+  1. raise kp ~3x (0.015 duty/V) and ki with it, then check the start and the steps again;
+  2. the input inductance and the link's capacitance from the run's data;
+  3. a peak current cutoff on the raw sigma-delta current is still missing; the duty cap is
+     the guard.
 - iac_in's sign: a 1 MS/s capture shows the boost's current pulses as positive counts (the
   firmware calibrates +256 counts/A), while the polarity test (`input_polarity_test.py`, removed
   to make room in the FPGA: it is in the history up to 877ce86) reported its period mean

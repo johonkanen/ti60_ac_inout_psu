@@ -887,9 +887,8 @@ static void handle_command(const char *message)
 			int reg;
 			double low, high;
 		} settings[] = {
-			{"v_ref", 1, 0.0, 400.0}, {"kp_v", 2, 0.0, 10.0}, {"ki_v", 3, 0.0, 1.0},
-			{"kp_i", 4, 0.0, 1.0}, {"ki_i", 5, 0.0, 1.0}, {"i_max", 6, 0.0, 5.0},
-			{"d_max", 7, 0.0, 0.5}, {"limit", 8, 0.0, 450.0}, {"ramp", 16, 0.0, 10.0},
+			{"v_ref", 1, 0.0, 400.0}, {"kp", 2, 0.0, 0.1}, {"ki", 3, 0.0, 0.001},
+			{"d_max", 7, 0.0, 0.2}, {"limit", 8, 0.0, 450.0}, {"ramp", 16, 0.0, 10.0},
 		};
 
 		for (size_t i = 0; i < ARRAY_SIZE(settings); i++) {

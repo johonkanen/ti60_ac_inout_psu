@@ -31,6 +31,10 @@ library ieee;
 -- clock's ready) goes to the modulator, which applies it from the next period. Stopped, each
 -- observer step resets it: its integrals cleared, du's filter at the observer's du.
 --
+-- The input boost's voltage control (input_boost_control's) shares the core: a step, or at its
+-- start a reset, at each boost_request, its inputs held by the boost until its next request; run
+-- when the core is free, the observer's steps first. Its results come with boost_ready.
+--
 -- The inputs and the bus's coefficient writes go to the data RAM through the core's external
 -- write port, each held until the core's write stream shows it written; the results are taken
 -- from that stream.
@@ -88,7 +92,26 @@ entity output_control_processor is
         -- scope probes: the voltages at 64 counts a volt (+-512 V), the currents at 256 an
         -- ampere (+-128 A): the observer's 0 i, 1 v, 2 du, 3 iload; the control's 0 i_ref, 1 u_ref
         observer_probes : out scope_sample_array(0 to 3);
-        control_probes  : out scope_sample_array(0 to 1)
+        control_probes  : out scope_sample_array(0 to 1);
+        -- the input boost's control: a step at each request (with boost_reset its reset); the
+        -- link's readings' sum and count over the period, its reference, the reference's ramp
+        -- (V/ms), d_max / 2, the PI's gains (24 fractional bits: duty/V, duty/V a period)
+        boost_request   : in boolean := false;
+        boost_reset     : in boolean := false;
+        boost_v_sum     : in fixed_number := fixed_zero;
+        boost_count     : in natural range 0 to boost_max_readings := 0;
+        boost_v_ref     : in fixed_number := fixed_zero;
+        boost_ramp      : in fixed_number := fixed_zero;
+        boost_d_half    : in fixed_number := fixed_zero;
+        boost_kp        : in signed(31 downto 0) := (others => '0');
+        boost_ki        : in signed(31 downto 0) := (others => '0');
+        -- its results, all of a step's written by its ready: the duty, the on time in half
+        -- clocks, the reference as ramped, the link's mean
+        boost_ready     : out boolean;
+        boost_duty      : out fixed_number;
+        boost_on_half   : out fixed_number;
+        boost_target    : out fixed_number;
+        boost_v         : out fixed_number
     );
 end entity output_control_processor;
 
@@ -159,11 +182,17 @@ architecture rtl of output_control_processor is
     type address_array is array (natural range <>) of natural range 0 to data_words-1;
     constant observer_inputs : address_array(0 to 5) := (a_i_meas, a_v_sum, a_recip, a_has, a_u, a_on);
     constant control_inputs  : address_array(0 to 1) := (a_v_ref, a_u_app);
-    signal inputs       : input_array(0 to 5) := (others => (others => '0'));
-    signal input_count  : natural range 0 to 6 := 0;
-    signal input_index  : natural range 0 to 6 := 0;
+    constant boost_inputs    : address_array(0 to 7) :=
+        (a_b_v_sum, a_b_recip, a_b_has, a_b_v_ref, a_b_ramp, a_b_dhalf, a_b_kp, a_b_ki);
+    signal inputs       : input_array(0 to 7) := (others => (others => '0'));
+    signal input_count  : natural range 0 to 8 := 0;
+    signal input_index  : natural range 0 to 8 := 0;
     signal writing_input : boolean := false;
-    signal is_control   : boolean := false;
+    type client_type is (observer, control, boost);
+    signal client       : client_type := observer;
+    signal boost_pending, boost_resetting : boolean := false;
+    signal boost_ready_r : boolean := false;
+    signal b_duty, b_on_half, b_target, b_v : fixed_number := fixed_zero;
 
     type stage_type is (idle, write_inputs, start, running);
     signal stage     : stage_type := idle;
@@ -178,11 +207,19 @@ architecture rtl of output_control_processor is
     signal observer_steps, control_steps : unsigned(31 downto 0) := (others => '0');
     signal ready_r : boolean := false;
 
-    type reciprocal_array is array (0 to max_readings) of program_word;
+    function larger(a, b : natural) return natural is
+    begin
+        if a > b then
+            return a;
+        end if;
+        return b;
+    end function;
+    constant most_readings : natural := larger(max_readings, boost_max_readings);
+    type reciprocal_array is array (0 to most_readings) of program_word;
     function reciprocals return reciprocal_array is
         variable retval : reciprocal_array := (others => (others => '0'));
     begin
-        for n in 1 to max_readings loop
+        for n in 1 to most_readings loop
             retval(n) := to_signed(integer(2.0**program_radix / real(n)), program_data_width);
         end loop;
         return retval;
@@ -213,6 +250,11 @@ begin
 
     u_ref <= u_ref_r;
     ready <= ready_r;
+    boost_ready   <= boost_ready_r;
+    boost_duty    <= b_duty;
+    boost_on_half <= b_on_half;
+    boost_target  <= b_target;
+    boost_v       <= b_v;
     observer_probes <= (to_probe_scaled(i_estimate, fixed_radix - 8), to_probe_scaled(v_estimate, fixed_radix - 6),
                         to_probe_scaled(du, fixed_radix - 6), to_probe_scaled(iload, fixed_radix - 8));
     control_probes  <= (to_probe_scaled(i_ref, fixed_radix - 8), to_probe_scaled(u_ref_r, fixed_radix - 6));
@@ -261,6 +303,11 @@ begin
 
             init_mproc(mproc_in);
             ready_r <= false;
+            boost_ready_r <= false;
+            if boost_request then
+                boost_pending   <= true;
+                boost_resetting <= boost_reset;
+            end if;
             observer_active := observer_enable(0) = '1';
             control_active  := control_enable(0) = '1' and closed_loop;
 
@@ -282,11 +329,14 @@ begin
                     write_data_to_ram(mc_write_in, bus_write_address, std_logic_vector(bus_write_data));
                 elsif stage = write_inputs and input_index < input_count then
                     writing_input <= true;
-                    if is_control then
-                        write_data_to_ram(mc_write_in, control_inputs(input_index), std_logic_vector(inputs(input_index)));
-                    else
-                        write_data_to_ram(mc_write_in, observer_inputs(input_index), std_logic_vector(inputs(input_index)));
-                    end if;
+                    case client is
+                        when observer =>
+                            write_data_to_ram(mc_write_in, observer_inputs(input_index), std_logic_vector(inputs(input_index)));
+                        when control =>
+                            write_data_to_ram(mc_write_in, control_inputs(input_index), std_logic_vector(inputs(input_index)));
+                        when boost =>
+                            write_data_to_ram(mc_write_in, boost_inputs(input_index), std_logic_vector(inputs(input_index)));
+                    end case;
                 end if;
             end if;
 
@@ -378,7 +428,7 @@ begin
                         inputs(5) <= one_if(step_run);
                         input_count <= 6;
                         input_index <= 0;
-                        is_control  <= false;
+                        client      <= observer;
                         if observer_active then
                             start_at <= observer_start;
                         else
@@ -386,6 +436,26 @@ begin
                         end if;
                         -- the control after the step: its own, or stopped its reset
                         next_is_control <= true;
+                        stage <= write_inputs;
+                    elsif boost_pending then
+                        -- the boost's step (or reset), its inputs as the boost holds them
+                        boost_pending <= false;
+                        inputs(0) <= to_program(boost_v_sum);
+                        inputs(1) <= reciprocal(boost_count);
+                        inputs(2) <= one_if(boost_count > 0);
+                        inputs(3) <= to_program(boost_v_ref);
+                        inputs(4) <= to_program(boost_ramp);
+                        inputs(5) <= to_program(boost_d_half);
+                        inputs(6) <= coefficient_to_program(boost_kp);
+                        inputs(7) <= coefficient_to_program(boost_ki);
+                        input_count <= 8;
+                        input_index <= 0;
+                        client      <= boost;
+                        if boost_resetting then
+                            start_at <= boost_reset_start;
+                        else
+                            start_at <= boost_start;
+                        end if;
                         stage <= write_inputs;
                     end if;
 
@@ -402,8 +472,10 @@ begin
 
                 when running =>
                     if is_ready(mproc_out) then
-                        if not is_control then
+                        if client = observer then
                             observer_steps <= observer_steps + 1;
+                        elsif client = boost then
+                            boost_ready_r <= true;
                         elsif start_at = control_start then
                             control_steps <= control_steps + 1;
                             ready_r <= true;
@@ -411,7 +483,7 @@ begin
                         stage <= idle;
                         if next_is_control then
                             next_is_control <= false;
-                            is_control  <= true;
+                            client      <= control;
                             input_index <= 0;
                             if control_active and pending_control then
                                 pending_control <= false;
@@ -444,6 +516,10 @@ begin
                     when a_excess_i  => limited(0) <= or mc_output.data;
                     when a_excess_vl => limited(1) <= or mc_output.data;
                     when a_excess_u  => limited(2) <= or mc_output.data;
+                    when a_b_duty    => b_duty    <= result;
+                    when a_b_on      => b_on_half <= result;
+                    when a_b_target  => b_target  <= result;
+                    when a_b_v       => b_v       <= result;
                     when others =>
                 end case;
             end if;

@@ -257,9 +257,9 @@ void capture_sequencer_start(void);
 void capture_sequencer_stop(void);
 void capture_sequencer_power_off(void);
 uint32_t capture_sequencer_state(void);
-/* the input bridge as a boost converter (input_boost_control.vhd, registers at 1260): a setting
- * by its register (1 v_ref, 2 kp_v, 3 ki_v, 4 kp_i, 5 ki_i, 6 i_max, 7 d_max, 8 the overvoltage
- * stop, 16 the ramp V/ms), start (when stopped), stop, the watchdog's kick; its state: [0] the
+/* the input bridge as a boost converter (input_boost_control.vhd, registers at 1260; its voltage
+ * PI to the duty on the output control's core): a setting by its register (1 v_ref, 2 kp duty/V,
+ * 3 ki duty/V a period, 7 d_max, 8 the overvoltage stop, 16 the ramp V/ms), start (when stopped), stop, the watchdog's kick; its state: [0] the
  * status (bit0 running, bit1..4 stopped by the overvoltage, a trip, the watchdog, inhibit), [1]
  * periods run */
 void capture_boost_set(int reg, double value);
@@ -304,8 +304,8 @@ void capture_net_state(struct scope_net_state *state);
 int scope_client_count(void);
 /* the network watchdog's restarts so far (main.c) */
 uint32_t scope_net_resets(void);
-/* 0 the current reference, 1 the duty, 2 the input current, 3 the link, 4 the bridge's output
- * current, 5 the input's voltage, 6 v_ref */
+/* 0 the reference as ramped, 1 the duty, 2 the input current, 3 the link's latest reading, 4 the
+ * link's period mean (the control's), 5 the input's voltage, 6 v_ref */
 double capture_boost_value(int which);
 /* the output's watchdog: a run is stopped (brought down) when this is not called for 1 s */
 void capture_output_kick(void);

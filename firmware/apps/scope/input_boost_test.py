@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """The input bridge as a boost converter from a DC source: the primary DC link held at a reference.
-    python3 input_boost_test.py [address] [--v-ref 105] [--step 112] [--i-max 1.0] [--limit 120]
-                                [--hold 1.5] [--yes]
+    python3 input_boost_test.py [address] [--v-ref 105] [--step 112] [--d-max 0.05] [--limit 120]
+                                [--kp 0.005] [--ki 1.5e-6] [--hold 1.5] [--yes]
 
 input_boost_control.vhd switches only leg 2's low side (the input's positive terminal), so no
-current can flow back into the source. Its voltage loop is slow (some Hz) on the bridge's output
-current, iac_in * vac_in / vdc_in, the current loop fast within i_max at the link.
+current can flow back into the source. Its voltage PI (on the output control's microprogram core)
+sets the duty straight from the link's period mean, within d_max, its crossover some Hz; the
+input current is not controlled (its measurement too noisy), only shown.
 
 The run: the boost started from where the link is, its reference ramping to v_ref; after hold
 seconds the reference stepped to step, after hold more back to v_ref, then stopped. A 10 kS/s
@@ -46,7 +47,7 @@ def boost(status):
     b = status.get('boost')
     if not b:
         return None
-    names = ['status', 'i_ref', 'duty', 'i_in', 'v_dc', 'i_bridge', 'v_ac', 'v_ref', 'periods']
+    names = ['status', 'target', 'duty', 'i_in', 'v_dc', 'v_mean', 'v_ac', 'v_ref', 'periods']
     return dict(zip(names, b))
 
 
@@ -60,9 +61,9 @@ def watch(board, seconds, log):
         state = boost(board.status)
         if state:
             log.append(state)
-            print(f'  link {state["v_dc"]:6.1f} V (ref {state["v_ref"]:5.1f}), input {state["v_ac"]:5.1f} V '
-                  f'{state["i_in"]:+5.2f} A, bridge {state["i_bridge"]:+5.2f} A (ref {state["i_ref"]:4.2f}), '
-                  f'duty {state["duty"]:.3f}, status {state["status"]}', flush=True)
+            print(f'  link {state["v_mean"]:6.1f} V (ref {state["target"]:5.1f} -> {state["v_ref"]:5.1f}), '
+                  f'input {state["v_ac"]:5.1f} V {state["i_in"]:+5.2f} A, duty {state["duty"]:.4f}, '
+                  f'status {state["status"]}', flush=True)
             if not state['status'] & 1:
                 return False
     return True
@@ -73,7 +74,9 @@ def main():
     parser.add_argument('address', nargs='?', default='192.168.20.11')
     parser.add_argument('--v-ref', type=float, default=105.0)
     parser.add_argument('--step', type=float, default=112.0, help='the reference stepped to, V')
-    parser.add_argument('--i-max', type=float, default=1.0, help="the bridge's output current's limit, A")
+    parser.add_argument('--d-max', type=float, default=0.05, help="the duty's limit")
+    parser.add_argument('--kp', type=float, default=0.005, help='the PI, duty/V')
+    parser.add_argument('--ki', type=float, default=1.5e-6, help='the PI, duty/V a period (25 us)')
     parser.add_argument('--limit', type=float, default=120.0, help='the overvoltage stop, V')
     parser.add_argument('--hold', type=float, default=1.5, help='seconds at each reference')
     parser.add_argument('--yes', action='store_true', help='do not ask before running the power stage')
@@ -94,7 +97,7 @@ def main():
     print(f'the primary DC link {status["dc_links"][0]:.1f} V, the input {boost(status)["v_ac"]:.1f} V')
     if not args.yes:
         answer = input(f'Run the input boost: the link to {args.v_ref:g} V, then {args.step:g} V and back, '
-                       f'{args.hold:g} s each, within {args.i_max:g} A, stopped at {args.limit:g} V? [y/N] ')
+                       f'{args.hold:g} s each, the duty within {args.d_max:g}, stopped at {args.limit:g} V? [y/N] ')
         if answer.strip().lower() != 'y':
             sys.exit('not run')
 
@@ -119,7 +122,8 @@ def main():
     log = []
     ok = True
     try:
-        board.send({'type': 'boost_start', 'v_ref': args.v_ref, 'i_max': args.i_max, 'limit': args.limit})
+        board.send({'type': 'boost_start', 'v_ref': args.v_ref, 'd_max': args.d_max, 'kp': args.kp,
+                    'ki': args.ki, 'limit': args.limit})
         print(f'the reference {args.v_ref:g} V')
         ok = watch(board, args.hold, log)
         if ok:

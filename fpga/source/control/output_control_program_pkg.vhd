@@ -33,6 +33,15 @@ library ieee;
 --                   mi_block on each limit's excess
 --   reset_start     the control stopped: its integrals cleared, du's filter at the observer's
 --                   du, the prefilter at its voltage (voltage_control_start)
+-- and two of the input boost's (input_boost_control's voltage control, its link's voltage held
+-- by the duty alone: the input current too noisy to control):
+--   boost_start        a period's step: the link's readings' mean (none: the mean before), the
+--                      reference a ramp's step on towards v_ref, the PI on the reference less the
+--                      mean to the duty, limited to 0 .. d_max (the limits as +-d_max/2 about
+--                      d_max/2; the integral held while the limit's excess and its increment
+--                      push the same way), the on time as half clocks
+--   boost_reset_start  a start: the mean taken, the reference from it, the integral and the duty
+--                      cleared
 package output_control_program_pkg is
 
     constant program_radix      : natural := 24;
@@ -50,7 +59,7 @@ package output_control_program_pkg is
         ,forwarded        => 0);
 
     constant data_words    : natural := 256;
-    constant program_words : natural := 512;
+    constant program_words : natural := 1024;
 
     -- the data ram
     constant a_zero : natural := 0;    constant a_one   : natural := 1;
@@ -94,16 +103,32 @@ package output_control_program_pkg is
     -- the prefilter's stages: the second the voltage PI's reference
     constant a_ref_1 : natural := 60; constant a_ref_2 : natural := 61;
     constant a_i_ff  : natural := 62;
+    -- the boost's: its inputs (the gains with 24 fractional bits), its state and results, its
+    -- constants (a period in ms, the period's half clocks)
+    constant a_b_v_sum : natural := 96;  constant a_b_recip : natural := 97;
+    constant a_b_has   : natural := 98;  constant a_b_v_ref : natural := 99;
+    constant a_b_ramp  : natural := 100; constant a_b_dhalf : natural := 101;
+    constant a_b_kp    : natural := 102; constant a_b_ki    : natural := 103;
+    constant a_b_v     : natural := 104; constant a_b_target : natural := 105;
+    constant a_b_int   : natural := 106; constant a_b_duty  : natural := 107;
+    constant a_b_on    : natural := 108; constant a_b_excess : natural := 109;
+    constant a_b_ms    : natural := 110; constant a_b_half_clocks : natural := 111;
+    -- the most of the link's readings a period
+    constant boost_max_readings : natural := 8;
 
     function observer_code return microprogram;
     function disabled_code return microprogram;
     function control_code return microprogram;
     function reset_code return microprogram;
+    function boost_code return microprogram;
+    function boost_reset_code return microprogram;
 
     constant observer_start : natural := 0;
     constant disabled_start : natural := 128;
     constant control_start  : natural := 192;
     constant reset_start    : natural := 448;
+    constant boost_start    : natural := 512;
+    constant boost_reset_start : natural := 640;
 
     function control_program return ram_array;
 
@@ -120,8 +145,9 @@ end package output_control_program_pkg;
 
 package body output_control_program_pkg is
 
-    -- temporaries
+    -- temporaries: the output's programs', the boost's
     constant t0 : natural := 64;
+    constant t1_boost : natural := 112;
 
     function observer_code return microprogram is
         constant a1 : natural := t0;       constant b1 : natural := t0 + 1;
@@ -268,6 +294,49 @@ package body output_control_program_pkg is
             ,mi(program_end));
     end function;
 
+    function boost_code return microprogram is
+        constant v_meas   : natural := t1_boost;      constant d_t      : natural := t1_boost + 1;
+        constant step_max : natural := t1_boost + 2;  constant step     : natural := t1_boost + 3;
+        constant e        : natural := t1_boost + 4;  constant raw      : natural := t1_boost + 5;
+        constant d_i      : natural := t1_boost + 6;  constant centered : natural := t1_boost + 7;
+        constant lim      : natural := t1_boost + 8;  constant d_ib     : natural := t1_boost + 9;
+    begin
+        return (
+            -- the link's mean, the reference's step towards v_ref
+             mi(mpy_add   , v_meas    , a_b_v_sum , a_b_recip , a_zero)
+            ,mi(mpy_sub   , d_t       , a_b_v_ref , a_one     , a_b_target)
+            ,mi(mpy_add   , step_max  , a_b_ramp  , a_b_ms    , a_zero)
+            ,mi(lp_filter , a_b_v     , v_meas    , a_b_v     , a_b_has)
+            ,mi_limit(step, d_t, step_max)
+            ,mi(mpy_add   , a_b_target, step      , a_one     , a_b_target)
+            -- the PI, its output about d_max/2 limited to +-d_max/2
+            ,mi(mpy_sub   , e         , a_b_target, a_one     , a_b_v)
+            ,mi(mpy_add   , raw       , e         , a_b_kp    , a_b_int)
+            ,mi(mpy_add   , d_i       , e         , a_b_ki    , a_zero)
+            ,mi(mpy_sub   , centered  , raw       , a_one     , a_b_dhalf)
+            ,mi_limit(lim, centered, a_b_dhalf)
+            ,mi(mpy_add   , a_b_duty  , lim       , a_one     , a_b_dhalf)
+            ,mi(mpy_sub   , a_b_excess, centered  , a_one     , lim)
+            ,mi(mpy_add   , a_b_on    , a_b_duty  , a_b_half_clocks, a_zero)
+            ,mi_block(d_ib, d_i, a_b_excess)
+            ,mi(mpy_add   , a_b_int   , d_ib      , a_one     , a_b_int)
+            ,mi(program_end));
+    end function;
+
+    function boost_reset_code return microprogram is
+        constant v_meas : natural := t1_boost;
+    begin
+        return (
+             mi(mpy_add   , v_meas    , a_b_v_sum , a_b_recip , a_zero)
+            ,mi(lp_filter , a_b_v     , v_meas    , a_b_v     , a_b_has)
+            ,mi(mpy_add   , a_b_target, a_b_v     , a_one     , a_zero)
+            ,mi(mpy_add   , a_b_int   , a_zero    , a_zero    , a_zero)
+            ,mi(mpy_add   , a_b_duty  , a_zero    , a_zero    , a_zero)
+            ,mi(mpy_add   , a_b_on    , a_zero    , a_zero    , a_zero)
+            ,mi(mpy_add   , a_b_excess, a_zero    , a_zero    , a_zero)
+            ,mi(program_end));
+    end function;
+
     function control_program return ram_array is
         variable retval : microprogram(0 to program_words-1) := empty_program(program_words);
     begin
@@ -275,6 +344,8 @@ package body output_control_program_pkg is
         retval := place(retval, disabled_start, schedule(program_config, disabled_code));
         retval := place(retval, control_start,  schedule(program_config, control_code));
         retval := place(retval, reset_start,    schedule(program_config, reset_code));
+        retval := place(retval, boost_start,    schedule(program_config, boost_code));
+        retval := place(retval, boost_reset_start, schedule(program_config, boost_reset_code));
         return encode(retval, program_config.instruction_width);
     end function;
 
@@ -283,6 +354,7 @@ package body output_control_program_pkg is
     begin
         return set_data(zeros, (
             (a_one, 1.0), (a_half, 0.5), (a_disabled_alpha, 0.125),
+            (a_b_ms, 0.025), (a_b_half_clocks, 1562.5),
             (a_phi11, k.phi11), (a_phi12, k.phi12), (a_phi21, k.phi21), (a_phi22, k.phi22),
             (a_g11, k.gamma11), (a_g12, k.gamma12), (a_g21, k.gamma21), (a_g22, k.gamma22),
             (a_kp_i, k.kp_i), (a_ki_i, k.ki_dt_i), (a_kp_v, k.kp_v), (a_ki_v, k.ki_dt_v),
