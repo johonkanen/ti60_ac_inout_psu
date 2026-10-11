@@ -274,6 +274,11 @@ class PlotArea {
       label: channels.length === 1 ? `CH${channels[0] + 1} ${this.o.sourceOf(channels[0])} [${unit}]` : unit,
       labelSize: 18, grid: i === 0 ? axis.grid : {show: false},
     }));
+    // an empty right axis on a plot of one unit: every plot as wide, the time axes in line
+    if (plotUnits.length === 1) {
+      axes.push({scale: plotUnits[0], side: 1, size: 70, label: ' ', labelSize: 18, grid: {show: false}, ticks: {show: false},
+                 values: (u, ticks) => ticks.map(() => '')});
+    }
     const scales = {x: {time: false}};
     for (const unit of plotUnits) {
       // a fixed range as set, else the data's with a little room
