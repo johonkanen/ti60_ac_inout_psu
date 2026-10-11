@@ -119,7 +119,7 @@ void scope_settings_load(void);
 #define SCOPE_STREAM_PORT            5004
 #define SCOPE_STREAM_SEGMENT_RECORDS 91     /* 1456 bytes: with a frame header, one TCP segment */
 #define SCOPE_STREAM_SEGMENTS        720    /* a message: 65520 records, 1 MB */
-#define SCOPE_STREAM_RING_SEGMENTS   (32 * SCOPE_STREAM_SEGMENTS)  /* 32 MB, 537 ms at 3.9 MS/s */
+#define SCOPE_STREAM_RING_SEGMENTS   (10 * SCOPE_STREAM_SEGMENTS)  /* 10 MB, 168 ms at 3.9 MS/s */
 
 int scope_stream_init(void);
 bool scope_stream_active(void);

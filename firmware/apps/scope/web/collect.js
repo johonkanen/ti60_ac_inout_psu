@@ -228,7 +228,7 @@ function start() {
       $('status').textContent = 'the stream ended…';
       setTimeout(() => {
         $('status').textContent = boardStatus.lost_words ?
-          `stopped by the board: the PC fell more than the board's 32 MB ring (about half a second) behind at ${formatRate(rate)} ` +
+          `stopped by the board: the PC fell more than the board's 10 MB ring (168 ms at the fastest rate) behind at ${formatRate(rate)} ` +
           `(overrun); the link carries up to about ${STREAM_MAX_BYTES / 1e6} MB/s` :
           'the stream was closed: another page or client may have taken it (the board serves one at a time)';
         $('status').classList.add('error');
@@ -548,6 +548,7 @@ function connect() {
     const message = JSON.parse(event.data);
     if (message.type === 'status') {
       boardStatus = message;
+      Banner.status(message);
       // a scope left running when this page opened stops: its capture stays for the scope page
       if (message.running && !scopeStopped) {
         scopeStopped = true;
@@ -570,6 +571,7 @@ function connect() {
     }
   };
   control.onclose = () => {
+    Banner.disconnected();
     if (!stream) {
       $('status').textContent = 'disconnected from the board, retrying…';
       $('status').classList.add('error');
@@ -577,6 +579,13 @@ function connect() {
     setTimeout(connect, 1000);
   };
 }
+
+// the board drops a client silent for 10 s: a heartbeat; the banner uses this connection too
+function send(message) {
+  if (control && control.readyState === WebSocket.OPEN) control.send(JSON.stringify(message));
+}
+setInterval(() => send({type: 'heartbeat'}), 1000);
+Banner.useSocket(send);
 
 window.addEventListener('resize', () => { if (area) area.resize(); });
 connect();

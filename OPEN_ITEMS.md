@@ -111,3 +111,13 @@ item when it is done; the commit that does it says so.
   (main.c) restarts the firmware should the receive packets stay used up for 10 s; its restarts
   show on the face panel ("r"). The websocket race is worth reporting to Zephyr (a draft
   issue was written, not filed).
+- **The HyperRAM's second die does not work reliably.** The W959D8NFYA is two 32 MB dies; the
+  controller decodes the CPU address as it is, so 0x01000000..0x01ffffff is the first die's
+  upper half and 0x02000000..0x03ffffff the second die (no burst may cross between them). With
+  the scope stream's ring there (2026-10-11), the Ethernet DMA's reads from it came 2 bytes
+  (one HyperRAM clock) off now and then, and the board crashed or hung within minutes, also
+  when the CPU's stacks were there; the same firmware with the ring on the first die ran clean.
+  First suspect: the read capture's calibration (one phase, set at power-up, 200 MHz) fits the
+  first die only. For now the firmware stays on the first die (devicetree RAM up to
+  0x02000000, stream ring 10 MB = 168 ms at 3.9 MS/s); the second die would give a 32 MB ring.
+  A crash now restarts the firmware (main.c), counted with the network's restarts.

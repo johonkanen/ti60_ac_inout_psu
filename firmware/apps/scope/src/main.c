@@ -173,7 +173,7 @@ HTTP_RESOURCE_DEFINE(zweb_root_resource, scope_service, "/", &web_files.common);
  * The network's watchdog: no receive packet of the stack free for NET_STUCK_S seconds and the
  * network is dead (every frame dropped, the board unreachable), so the firmware starts again
  * (the FPGA brings a run down without its kicks; the STOP button works throughout). The
- * restarts are counted in memory a reboot keeps, shown on the face panel.
+ * restarts (and a crash's, below) are counted in memory a reboot keeps, shown on the face panel.
  */
 #define NET_STUCK_S 10
 #define NET_RESETS_MAGIC 0x4e455452u     /* "NETR" */
@@ -208,6 +208,26 @@ static void net_watchdog(struct k_work *work)
 }
 
 static K_WORK_DELAYABLE_DEFINE(net_watchdog_work, net_watchdog);
+
+/*
+ * A crash (its report on the console already) starts the firmware again rather than halting
+ * it, which left the board unreachable until a power cycle; counted with the network's
+ * restarts on the face panel.
+ */
+void k_sys_fatal_error_handler(unsigned int reason, const struct arch_esf *esf)
+{
+	ARG_UNUSED(esf);
+
+	if (net_resets_magic != NET_RESETS_MAGIC) {
+		net_resets_magic = NET_RESETS_MAGIC;
+		net_resets = 0;
+	}
+	net_resets++;
+	LOG_PANIC();
+	printk("fatal error %u: restart %u\n", reason, net_resets);
+	sys_reboot(SYS_REBOOT_COLD);
+	CODE_UNREACHABLE;
+}
 
 int main(void)
 {
