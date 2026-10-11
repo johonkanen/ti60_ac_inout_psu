@@ -996,7 +996,7 @@ function connect() {
         await units.load();
         area = new PlotArea({container: $('plots'), storageKey: 'scope.layout', sourceOf,
                              timeFormat: formatTime, values: plotValues, draw: drawMarkers,
-                             onSelect: zoomTo, onReset: () => zoomTo(null)});
+                             onSelect: (from, to) => zoomTo([from, to]), onReset: () => zoomTo(null)});
         area.visible.fill(false, 4);
         buildControls();
         built = true;
