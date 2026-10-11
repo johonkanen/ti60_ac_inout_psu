@@ -228,7 +228,7 @@ function start() {
       $('status').textContent = 'the stream ended…';
       setTimeout(() => {
         $('status').textContent = boardStatus.lost_words ?
-          `stopped by the board: the PC fell more than the board's 8 MB ring behind at ${formatRate(rate)} ` +
+          `stopped by the board: the PC fell more than the board's 32 MB ring (about half a second) behind at ${formatRate(rate)} ` +
           `(overrun); the link carries up to about ${STREAM_MAX_BYTES / 1e6} MB/s` :
           'the stream was closed: another page or client may have taken it (the board serves one at a time)';
         $('status').classList.add('error');
