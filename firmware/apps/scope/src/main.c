@@ -8,6 +8,9 @@
 #include <zephyr/net/http/service.h>
 #include <zephyr/fs/fs.h>
 #include <zephyr/net/net_if.h>
+#include <zephyr/net/net_pkt.h>
+#include <zephyr/sys/reboot.h>
+#include <zephyr/logging/log_ctrl.h>
 #include <fw_update.h>
 #include <http_files.h>
 #include "scope.h"
@@ -54,6 +57,46 @@ HTTP_RESOURCE_DEFINE(ws_resource, scope_service, "/ws", &ws);
 HTTP_RESOURCE_DEFINE(update_resource, scope_service, "/update", &fw_update_resource);
 HTTP_RESOURCE_DEFINE(files_resource, scope_service, "/files/*", &http_files_resource);
 
+/*
+ * The network's watchdog: no receive packet of the stack free for NET_STUCK_S seconds and the
+ * network is dead (every frame dropped, the board unreachable), so the firmware starts again
+ * (the FPGA brings a run down without its kicks; the STOP button works throughout). The
+ * restarts are counted in memory a reboot keeps, shown on the face panel.
+ */
+#define NET_STUCK_S 10
+#define NET_RESETS_MAGIC 0x4e455452u     /* "NETR" */
+static __noinit uint32_t net_resets_magic;
+static __noinit uint32_t net_resets;
+
+uint32_t scope_net_resets(void)
+{
+	return net_resets_magic == NET_RESETS_MAGIC ? net_resets : 0;
+}
+
+static void net_watchdog(struct k_work *work)
+{
+	static int stuck_s;
+	struct k_mem_slab *rx, *tx;
+	struct net_buf_pool *rx_data, *tx_data;
+
+	net_pkt_get_info(&rx, &tx, &rx_data, &tx_data);
+	stuck_s = k_mem_slab_num_free_get(rx) == 0 ? stuck_s + 1 : 0;
+	if (stuck_s >= NET_STUCK_S) {
+		if (net_resets_magic != NET_RESETS_MAGIC) {
+			net_resets_magic = NET_RESETS_MAGIC;
+			net_resets = 0;
+		}
+		net_resets++;
+		LOG_PANIC();
+		printk("network stuck: no receive packet free for %d s, restart %u\n", NET_STUCK_S,
+		       net_resets);
+		sys_reboot(SYS_REBOOT_COLD);
+	}
+	k_work_reschedule(k_work_delayable_from_work(work), K_SECONDS(1));
+}
+
+static K_WORK_DELAYABLE_DEFINE(net_watchdog_work, net_watchdog);
+
 int main(void)
 {
 	struct fs_dirent entry;
@@ -79,6 +122,7 @@ int main(void)
 	}
 	http_server_start();
 	panel_start();
+	k_work_reschedule(&net_watchdog_work, K_SECONDS(1));
 #ifdef CONFIG_SCOPE_STREAM
 	/* the stream answers on the board's address, which a DHCP lease may bring late */
 	for (int s = 0; s < 30; s++) {

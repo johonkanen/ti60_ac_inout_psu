@@ -92,6 +92,20 @@ item when it is done; the commit that does it says so.
   and flashing it needs JTAG, with the power stage off.
 - A network FPGA reload from the application image sometimes falls back to golden; power
   cycling and reinstalling the same file has always worked.
-- The PHY sometimes stops answering MDIO; replugging the cable helps.
-- A page refresh sometimes takes about 10 s. Suspected: the HTTP server's 6 client limit with
-  its 10 s inactivity timeout. Not reproduced.
+- The PHY sometimes stops answering MDIO (every address reads 0xffff, the PHY driver fails at
+  start). After a power cycle with the serial adapter (FT4232H) plugged in it stayed so: the
+  adapter's TX line seems to keep the board partly powered. Power-cycle with the adapter's USB
+  unplugged; replugging the Ethernet cable helped before.
+- Quick page changes used to stop the network after 3..62 of them (every receive packet held,
+  the board unreachable; the old "page refresh takes 10 s" was likely the same): Zephyr's
+  websocket_unregister() writes to the websocket context after freeing it, and the HTTP server
+  gives that context to the next page meanwhile. Fixed in scope.c (the sockets closed without
+  it, a receive buffer for each client). Two more in scope.c: a client slot was reused before
+  its thread had ended (creating a thread the kernel still listed corrupted its thread list: the
+  HTTP server stopped, once the whole firmware hung), and a page gone without closing held its
+  slot; now a slot waits for its thread to end, a client silent for 10 s is closed, and there
+  are 6 slots. 503 page loads in the stress test since, none slow. The network watchdog
+  (main.c) restarts the firmware should the receive packets stay used up for 10 s; its restarts
+  show on the face panel ("r"). The websocket race is worth reporting to Zephyr.
+- Every page asks for scaling.json, which the board does not have until the data collection
+  page saves one: a 404 and a logged error each load, harmless.

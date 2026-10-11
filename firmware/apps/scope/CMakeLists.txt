@@ -16,6 +16,8 @@ add_custom_target(git_version
   BYPRODUCTS ${GIT_VERSION_DIR}/git_version.h)
 add_dependencies(app git_version)
 target_include_directories(app PRIVATE ${GIT_VERSION_DIR})
+# Zephyr's websocket context (scope.c: the clients' own buffers, their TCP sockets closed)
+target_include_directories(app PRIVATE ${ZEPHYR_BASE}/subsys/net/lib/websocket)
 # the FPGA's scope_capture where the board has it, else the software stand-in
 if(CONFIG_SCOPE_CAPTURE_HW)
   target_sources(app PRIVATE src/capture_hw.c)

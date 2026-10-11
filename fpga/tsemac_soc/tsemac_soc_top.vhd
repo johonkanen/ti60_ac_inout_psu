@@ -585,13 +585,13 @@ begin
         ,lcd_led   => lcd_led
     );
 
-    -- the commit this image was built from (image_role_pkg, written by build.sh), register 1330:
+    -- the commit this image was built from (image_role_pkg, written by build.sh), register 1335:
     -- bits 27..0 its hash's first 7 hex digits, bit 31 the tree had changes
     process(io_tseClk)
     begin
         if rising_edge(io_tseClk) then
             init_bus(bus_from_version);
-            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1330,
+            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1335,
                 std_logic_vector(to_unsigned(image_git_dirty * 8, 4)) & std_logic_vector(to_unsigned(image_git_hash, 28)));
         end if;
     end process;

@@ -56,4 +56,21 @@ void eth_efinix_tx_slot_set(const struct device *dev, int slot, const void *payl
 /* sends slots first..first+count-1; 0, or -EBUSY as eth_efinix_tx_batch() */
 int eth_efinix_tx_slots_send(const struct device *dev, int first, int count);
 
+/* the interface's state, for finding out where it stops: the driver's counts since start,
+ * the MAC's own counters, the DMA channels' status registers and the link */
+struct eth_efinix_stats {
+	uint32_t rx_frames;      /* taken from the receive ring (the stack's and the hook's) */
+	uint32_t rx_dropped;     /* no packet for it, or the stack refused it */
+	uint32_t rx_restarts;    /* the receive DMA started again after it had stopped */
+	uint32_t tx_frames;      /* sent by the stack's path */
+	uint32_t tx_errors;      /* the stack's frames not sent (a DMA timeout or a failure) */
+	int64_t last_rx_ms;      /* uptime of the last frame received, 0 none */
+	uint32_t mac_rx_ok, mac_tx_ok, mac_crc_errors, mac_in_errors, mac_out_errors;
+	uint32_t dma_rx_status, dma_tx_status;
+	bool link_up;
+	uint16_t link_mbps;
+};
+
+void eth_efinix_get_stats(const struct device *dev, struct eth_efinix_stats *stats);
+
 #endif

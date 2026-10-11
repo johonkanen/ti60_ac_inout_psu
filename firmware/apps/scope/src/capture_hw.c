@@ -24,6 +24,10 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/sys_io.h>
 #include "scope.h"
+#include <zephyr/net/net_if.h>
+#ifdef CONFIG_ETH_EFINIX_TSEMAC
+#include <eth_efinix_tsemac.h>
+#endif
 
 LOG_MODULE_REGISTER(capture_hw, LOG_LEVEL_INF);
 
@@ -720,9 +724,36 @@ uint32_t capture_lcd_cols(void)
 	return sys_read32(LCD_REGISTER(7)) & 0xff;
 }
 
+void capture_net_state(struct scope_net_state *state)
+{
+	memset(state, 0, sizeof(*state));
+#ifdef CONFIG_ETH_EFINIX_TSEMAC
+	struct net_if *iface = net_if_get_default();
+	struct eth_efinix_stats s;
+
+	if (iface == NULL) {
+		return;
+	}
+	eth_efinix_get_stats(net_if_get_device(iface), &s);
+	state->rx_frames = s.rx_frames;
+	state->rx_dropped = s.rx_dropped;
+	state->rx_restarts = s.rx_restarts;
+	state->tx_frames = s.tx_frames;
+	state->tx_errors = s.tx_errors;
+	state->last_rx_ms = s.last_rx_ms;
+	state->mac_rx_ok = s.mac_rx_ok;
+	state->mac_tx_ok = s.mac_tx_ok;
+	state->mac_errors = s.mac_crc_errors + s.mac_in_errors + s.mac_out_errors;
+	state->dma_rx_status = s.dma_rx_status;
+	state->dma_tx_status = s.dma_tx_status;
+	state->link_up = s.link_up;
+	state->link_mbps = s.link_mbps;
+#endif
+}
+
 uint32_t capture_fpga_version(void)
 {
-	return sys_read32(REGISTERS + 4 * 1330);
+	return sys_read32(REGISTERS + 4 * 1335);
 }
 
 #define TOUCH_REGISTER(r) (REGISTERS + 4 * 1320 + 4 * (r))

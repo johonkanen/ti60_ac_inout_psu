@@ -13,6 +13,9 @@
 #include <zephyr/kernel.h>
 #include <zephyr/fs/fs.h>
 #include <zephyr/net/socket.h>
+/* Zephyr's websocket context (this Zephyr's, v4.4.2: west.yml), for the clients' own receive
+ * buffers and their TCP sockets, see scope_client_add() */
+#include <websocket_internal.h>
 #include <zephyr/net/websocket.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
@@ -20,7 +23,10 @@
 
 LOG_MODULE_REGISTER(scope, LOG_LEVEL_INF);
 
-#define MAX_CLIENTS        4  /* the scope and data collection pages, a script */
+#define MAX_CLIENTS        6  /* the pages (each its own, or its banner's), a script */
+/* a client heard nothing from for this long is gone (every page sends a heartbeat each second):
+ * its sockets closed, so a page that left without closing does not hold a slot or a socket */
+#define CLIENT_GONE_MS     10000
 #define CLIENT_STACK_SIZE  4096
 #define SCOPE_STACK_SIZE   4096
 #define COMMAND_MAX        16384 /* a waveform's 512 points as JSON, ~6 kB */
@@ -124,12 +130,18 @@ static K_MUTEX_DEFINE(scope_lock);
 
 static struct client {
 	int sock;
+	int real_sock; /* the websocket's TCP socket */
+	bool started;  /* thread has been created (and maybe not yet ended) */
 	struct k_thread thread;
 	char *command; /* commands[] */
-} clients[MAX_CLIENTS] = {[0 ... MAX_CLIENTS - 1] = {.sock = -1}};
+} clients[MAX_CLIENTS] = {[0 ... MAX_CLIENTS - 1] = {.sock = -1, .real_sock = -1}};
 
 /* the clients' incoming commands, apart from clients[] so they are not in the image's data */
 static char commands[MAX_CLIENTS][COMMAND_MAX];
+/* each client's websocket receive buffer: the HTTP server registers every websocket with the
+ * resource's one buffer, so two pages' messages would be read into the same memory */
+#define WS_BUFFER_SIZE 1024
+static uint8_t ws_buffers[MAX_CLIENTS][WS_BUFFER_SIZE];
 
 static K_THREAD_STACK_ARRAY_DEFINE(client_stacks, MAX_CLIENTS, CLIENT_STACK_SIZE);
 /* one message to a client at a time */
@@ -952,14 +964,27 @@ static void client_thread(void *p1, void *p2, void *p3)
 	k_mutex_unlock(&send_lock);
 	broadcast_status();
 
+	int64_t heard = k_uptime_get();
+
 	while (true) {
 		uint32_t type;
 		uint64_t remaining;
 		int ret = websocket_recv_msg(client->sock, client->command + length,
-					     COMMAND_MAX - 1 - length, &type, &remaining,
-					     SYS_FOREVER_MS);
+					     COMMAND_MAX - 1 - length, &type, &remaining, 1000);
 
+		if (ret == -EAGAIN) {
+			if (k_uptime_get() - heard > CLIENT_GONE_MS) {
+				LOG_INF("client %d silent for %d s", (int)(client - clients),
+					CLIENT_GONE_MS / 1000);
+				break;
+			}
+			continue;
+		}
+		heard = k_uptime_get();
 		if (ret < 0 || (type & WEBSOCKET_FLAG_CLOSE)) {
+			if (ret < 0) {
+				LOG_WRN("client %d: receive failed: %d", (int)(client - clients), ret);
+			}
 			break;
 		}
 		length += ret;
@@ -978,19 +1003,77 @@ static void client_thread(void *p1, void *p2, void *p3)
 
 	LOG_INF("client %d disconnected", (int)(client - clients));
 	k_mutex_lock(&send_lock, K_FOREVER);
-	(void)websocket_unregister(client->sock);
+	/*
+	 * The websocket closed (its close frame, its context freed), then its TCP socket, both
+	 * from what was noted at the start. Not websocket_unregister(): after closing the
+	 * websocket it reads and writes the context it has just freed (Zephyr v4.4.2), which
+	 * the HTTP server may meanwhile have given to the next page's websocket: that one is
+	 * left with no sockets, its client polling nothing, its TCP connection open and filling
+	 * the stack's receive packets until the network stops (quick page changes did it).
+	 */
+	(void)zsock_close(client->sock);
+	if (client->real_sock >= 0) {
+		(void)zsock_close(client->real_sock);
+	}
 	client->sock = -1;
+	client->real_sock = -1;
 	k_mutex_unlock(&send_lock);
 }
 
+int scope_client_count(void)
+{
+	int n = 0;
+
+	for (int i = 0; i < MAX_CLIENTS; i++) {
+		n += clients[i].sock >= 0;
+	}
+	return n;
+}
+
+struct websocket_lookup {
+	int sock;
+	struct websocket_context *ctx;
+};
+
+static void find_websocket(struct websocket_context *ctx, void *user_data)
+{
+	struct websocket_lookup *lookup = user_data;
+
+	if (ctx->sock == lookup->sock) {
+		lookup->ctx = ctx;
+	}
+}
+
+/* called by the HTTP server just after it has registered the websocket, before anything is
+ * received on it: the client's own receive buffer, and its TCP socket noted for the close */
 int scope_client_add(int ws_socket)
 {
 	for (int i = 0; i < MAX_CLIENTS; i++) {
 		struct client *client = &clients[i];
 
+		/*
+		 * A slot is free once its thread has ended, not when it marks the slot free: the
+		 * HTTP server (cooperative, above the client threads) can call this in between,
+		 * and creating a thread on one the kernel still lists corrupts its thread list.
+		 */
+		if (client->sock < 0 && client->started && k_thread_join(&client->thread, K_NO_WAIT) != 0) {
+			continue;
+		}
 		if (client->sock < 0) {
+			struct websocket_lookup lookup = {.sock = ws_socket};
+
+			websocket_context_foreach(find_websocket, &lookup);
+			if (lookup.ctx == NULL) {
+				LOG_WRN("no websocket context for socket %d", ws_socket);
+				return -ENOENT;
+			}
+			lookup.ctx->recv_buf.buf = ws_buffers[i];
+			lookup.ctx->recv_buf.size = sizeof(ws_buffers[i]);
+			lookup.ctx->recv_buf.count = 0;
+			client->real_sock = lookup.ctx->real_sock;
 			client->sock = ws_socket;
 			client->command = commands[i];
+			client->started = true;
 			k_thread_create(&client->thread, client_stacks[i],
 					K_THREAD_STACK_SIZEOF(client_stacks[i]), client_thread, client,
 					NULL, NULL, K_PRIO_PREEMPT(8), 0, K_NO_WAIT);

@@ -268,6 +268,21 @@ void panel_start(void);
 void panel_calibrate(void);
 bool panel_calibrating(void);
 bool panel_touch_pixels(const uint32_t touch[4], int *x, int *y);
+
+/* the network interface's state (the Ethernet driver's statistics; zeros without it) */
+struct scope_net_state {
+	uint32_t rx_frames, rx_dropped, rx_restarts, tx_frames, tx_errors;
+	int64_t last_rx_ms;
+	uint32_t mac_rx_ok, mac_tx_ok, mac_errors;
+	uint32_t dma_rx_status, dma_tx_status;
+	bool link_up;
+	uint16_t link_mbps;
+};
+void capture_net_state(struct scope_net_state *state);
+/* the /ws clients connected now */
+int scope_client_count(void);
+/* the network watchdog's restarts so far (main.c) */
+uint32_t scope_net_resets(void);
 /* 0 the current reference, 1 the duty, 2 the input current, 3 the link, 4 the bridge's output
  * current, 5 the input's voltage, 6 v_ref */
 double capture_boost_value(int which);

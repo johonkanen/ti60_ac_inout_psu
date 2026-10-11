@@ -372,6 +372,11 @@ uint32_t capture_lcd_cols(void)
 	return 24;
 }
 
+void capture_net_state(struct scope_net_state *state)
+{
+	memset(state, 0, sizeof(*state));
+}
+
 uint32_t capture_fpga_version(void)
 {
 	return 0;

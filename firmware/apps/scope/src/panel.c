@@ -3,7 +3,8 @@
  *
  * The screen shows the board's address, the last touch, and the commits the firmware and the
  * FPGA image were built from, each on a line of its own; looked at every 200 ms, a line that
- * changed rewritten and the screen redrawn.
+ * changed rewritten and the screen redrawn. Under the title the network's state, once a
+ * second: the link, the /ws clients and the network watchdog's restarts (main.c).
  *
  * The touch screen's calibration: its controller reads 0..4095 on two axes that need not be the
  * screen's (swapped, mirrored, offset), so screen pixels are an affine map of the raw readings,
@@ -42,7 +43,8 @@ LOG_MODULE_REGISTER(panel, LOG_LEVEL_INF);
 #define FPGA_ROW     7
 #define STOP_ROW     8
 #define MESSAGE_ROW  9
-#define LINES        6
+#define LINK_ROW     1
+#define LINES        7
 
 /* the STOP button's area, pixels, as lcd_display's defaults */
 #define BUTTON_X0 330
@@ -210,6 +212,19 @@ static void show_normal(void)
 		presses_seen = presses;
 	}
 	changed |= normal_line(5, MESSAGE_ROW, k_uptime_get() < stop_shown_until ? "stopped (panel)" : "");
+
+	/* the network, once a second */
+	static int64_t net_shown;
+
+	if (k_uptime_get() - net_shown >= 1000) {
+		struct scope_net_state n;
+
+		net_shown = k_uptime_get();
+		capture_net_state(&n);
+		snprintf(text, sizeof(text), "link %s %u ws %d r%u", n.link_up ? "up" : "DOWN", n.link_mbps,
+			 scope_client_count(), scope_net_resets());
+		changed |= normal_line(6, LINK_ROW, text);
+	}
 
 	if (changed) {
 		capture_lcd_draw();

@@ -126,6 +126,13 @@ struct eth_efinix_data {
 	uint8_t mac_addr[6];
 	uint32_t rx_next;
 	uint32_t rx_dropped;
+	uint32_t rx_frames;
+	uint32_t rx_restarts;
+	uint32_t tx_frames;
+	uint32_t tx_errors;
+	int64_t last_rx_ms;
+	bool link_up;
+	uint16_t link_mbps;
 	struct k_mutex tx_lock;
 	eth_efinix_rx_hook_t rx_hook;
 	void *rx_hook_data;
@@ -163,6 +170,7 @@ static void rx_arm(const struct eth_efinix_config *cfg, uint32_t i)
 static void rx_restart(const struct eth_efinix_config *cfg, struct eth_efinix_data *data)
 {
 	if (!(dma_read(cfg, DMA_RX, DMA_STATUS) & DMA_STATUS_BUSY)) {
+		data->rx_restarts++;
 		dma_write(cfg, DMA_RX, DMA_LINKED_LIST_HEAD,
 			  (uintptr_t)&cfg->rx_desc[data->rx_next]);
 		dma_write(cfg, DMA_RX, DMA_STATUS, DMA_STATUS_LINKED_LIST_START);
@@ -186,6 +194,9 @@ static void eth_efinix_rx(const struct device *dev)
 		}
 
 		uint32_t len = status & DESC_BYTES;
+
+		data->rx_frames++;
+		data->last_rx_ms = k_uptime_get();
 
 		if (len > 0 && len <= BUF_SIZE && data->rx_hook != NULL &&
 		    data->rx_hook(cfg->rx_buf[i], len, data->rx_hook_data)) {
@@ -315,11 +326,38 @@ static int eth_efinix_send(const struct device *dev, struct net_pkt *pkt)
 	}
 
 out:
+	if (ret < 0) {
+		data->tx_errors++;
+	} else {
+		data->tx_frames++;
+	}
 	k_mutex_unlock(&data->tx_lock);
 	if (ret < 0) {
 		LOG_ERR("TX of %u bytes failed: %d", (unsigned int)len, ret);
 	}
 	return ret;
+}
+
+void eth_efinix_get_stats(const struct device *dev, struct eth_efinix_stats *stats)
+{
+	const struct eth_efinix_config *cfg = dev->config;
+	struct eth_efinix_data *data = dev->data;
+
+	stats->rx_frames = data->rx_frames;
+	stats->rx_dropped = data->rx_dropped;
+	stats->rx_restarts = data->rx_restarts;
+	stats->tx_frames = data->tx_frames;
+	stats->tx_errors = data->tx_errors;
+	stats->last_rx_ms = data->last_rx_ms;
+	stats->mac_rx_ok = sys_read32(cfg->mac + MAC_FRAMES_RX_OK);
+	stats->mac_tx_ok = sys_read32(cfg->mac + MAC_FRAMES_TX_OK);
+	stats->mac_crc_errors = sys_read32(cfg->mac + MAC_CRC_ERRORS);
+	stats->mac_in_errors = sys_read32(cfg->mac + MAC_IF_IN_ERRORS);
+	stats->mac_out_errors = sys_read32(cfg->mac + MAC_IF_OUT_ERRORS);
+	stats->dma_rx_status = dma_read(cfg, DMA_RX, DMA_STATUS);
+	stats->dma_tx_status = dma_read(cfg, DMA_TX, DMA_STATUS);
+	stats->link_up = data->link_up;
+	stats->link_mbps = data->link_mbps;
 }
 
 void eth_efinix_set_rx_hook(const struct device *dev, eth_efinix_rx_hook_t hook, void *user_data)
@@ -558,6 +596,9 @@ static void eth_efinix_link_changed(const struct device *phy, struct phy_link_st
 
 	ARG_UNUSED(phy);
 
+	data->link_up = state->is_up;
+	data->link_mbps = PHY_LINK_IS_SPEED_1000M(state->speed) ? 1000
+			  : PHY_LINK_IS_SPEED_100M(state->speed) ? 100 : 10;
 	if (!state->is_up) {
 		LOG_INF("link down");
 		net_eth_carrier_off(data->iface);
