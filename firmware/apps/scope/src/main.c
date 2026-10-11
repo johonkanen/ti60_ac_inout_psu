@@ -7,6 +7,8 @@
 #include <zephyr/net/http/server.h>
 #include <zephyr/net/http/service.h>
 #include <zephyr/fs/fs.h>
+#include <stdio.h>
+#include <string.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_pkt.h>
 #include <zephyr/sys/reboot.h>
@@ -21,12 +23,115 @@
  */
 #define WEB_ROOT "/web"
 
-static struct http_resource_detail_static_fs web_files = {
+/*
+ * Served by this dynamic resource, not Zephyr's static filesystem one: that one (v4.4.2) sends
+ * "\r\n\r\n" after each file, four bytes its Content-Length does not count, so on a kept-alive
+ * connection the next response seems to start with them; Firefox then took the next file for
+ * one without headers and the pages did not start. Here a file goes out chunked, gzipped as it
+ * is stored, its type from its name.
+ */
+static struct {
+	bool open;
+	struct fs_file_t file;
+	char path[sizeof(WEB_ROOT) + 72];
+	uint8_t chunk[4096];
+	struct http_header headers[2];
+} web;
+
+static const char *content_type_of(const char *name)
+{
+	static const struct {
+		const char *ext, *type;
+	} types[] = {
+		{".html", "text/html"}, {".js", "text/javascript"}, {".css", "text/css"},
+		{".json", "application/json"}, {".svg", "image/svg+xml"}, {".png", "image/png"},
+		{".ico", "image/x-icon"}, {".txt", "text/plain"},
+	};
+	size_t n = strlen(name);
+
+	for (size_t i = 0; i < ARRAY_SIZE(types); i++) {
+		size_t e = strlen(types[i].ext);
+
+		if (n >= e && strcmp(name + n - e, types[i].ext) == 0) {
+			return types[i].type;
+		}
+	}
+	return "application/octet-stream";
+}
+
+static void web_close(void)
+{
+	if (web.open) {
+		fs_close(&web.file);
+		web.open = false;
+	}
+}
+
+static int web_cb(struct http_client_ctx *client, enum http_transaction_status status,
+		  const struct http_request_ctx *request_ctx, struct http_response_ctx *response,
+		  void *user_data)
+{
+	ARG_UNUSED(request_ctx);
+	ARG_UNUSED(user_data);
+
+	if (status == HTTP_SERVER_TRANSACTION_ABORTED || status == HTTP_SERVER_TRANSACTION_COMPLETE) {
+		web_close();
+		return 0;
+	}
+	if (!web.open) {
+		/* the request: the URL's path, "/" the index, any "?..." left out */
+		char name[64];
+		const char *url = (const char *)client->url_buffer;
+		size_t len = strcspn(url, "?#");
+
+		if (len <= 1) {
+			strcpy(name, "index.html");
+		} else if (len - 1 < sizeof(name) && strstr(url, "..") == NULL) {
+			memcpy(name, url + 1, len - 1);
+			name[len - 1] = '\0';
+		} else {
+			name[0] = '\0';
+		}
+		snprintf(web.path, sizeof(web.path), WEB_ROOT "/%s.gz", name);
+		fs_file_t_init(&web.file);
+		if (name[0] == '\0' || strchr(name, '/') != NULL ||
+		    fs_open(&web.file, web.path, FS_O_READ) != 0) {
+			static const char missing[] = "not found\n";
+
+			response->status = HTTP_404_NOT_FOUND;
+			response->body = (const uint8_t *)missing;
+			response->body_len = sizeof(missing) - 1;
+			response->final_chunk = true;
+			return 0;
+		}
+		web.open = true;
+		web.headers[0] = (struct http_header){"Content-Type", content_type_of(name)};
+		web.headers[1] = (struct http_header){"Content-Encoding", "gzip"};
+		response->headers = web.headers;
+		response->header_count = ARRAY_SIZE(web.headers);
+		response->status = HTTP_200_OK;
+	}
+
+	ssize_t n = fs_read(&web.file, web.chunk, sizeof(web.chunk));
+
+	if (n < 0) {
+		n = 0;
+	}
+	response->body = web.chunk;
+	response->body_len = n;
+	if (n < (ssize_t)sizeof(web.chunk)) {
+		response->final_chunk = true;
+		web_close();
+	}
+	return 0;
+}
+
+static struct http_resource_detail_dynamic web_files = {
 	.common = {
-		.type = HTTP_RESOURCE_TYPE_STATIC_FS,
+		.type = HTTP_RESOURCE_TYPE_DYNAMIC,
 		.bitmask_of_supported_http_methods = BIT(HTTP_GET),
 	},
-	.fs_path = WEB_ROOT,
+	.cb = web_cb,
 };
 
 static int ws_setup(int ws_socket, struct http_request_ctx *request_ctx, void *user_data)
@@ -52,10 +157,17 @@ static struct http_resource_detail_websocket ws = {
 static uint16_t http_port = 80;
 
 HTTP_SERVICE_DEFINE(scope_service, NULL, &http_port, CONFIG_HTTP_SERVER_MAX_CLIENTS, 4, NULL,
-		    &web_files.common, NULL);
+		    NULL, NULL);
 HTTP_RESOURCE_DEFINE(ws_resource, scope_service, "/ws", &ws);
 HTTP_RESOURCE_DEFINE(update_resource, scope_service, "/update", &fw_update_resource);
 HTTP_RESOURCE_DEFINE(files_resource, scope_service, "/files/*", &http_files_resource);
+/* the web client: everything the others do not take. A resource, not the service's fallback:
+ * the server releases a dynamic resource whose transfer broke off (a reset connection) only
+ * for its resources, a fallback stayed held and answered every later request 409. Its name
+ * sorts last, so the other wildcards (the files resource) are matched first. */
+HTTP_RESOURCE_DEFINE(zweb_resource, scope_service, "/*", &web_files.common);
+/* and the bare address, which the wildcard does not match: the index */
+HTTP_RESOURCE_DEFINE(zweb_root_resource, scope_service, "/", &web_files.common);
 
 /*
  * The network's watchdog: no receive packet of the stack free for NET_STUCK_S seconds and the

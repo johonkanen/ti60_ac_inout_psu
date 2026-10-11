@@ -26,6 +26,12 @@ const Banner = (() => {
   let last = null;
   let element = null;
   let runSource = null;   // {check: () => problem or null, describe: () => text, load: () => {}}
+  let notice = null;      // {text, until}: a message shown in the status line for a while
+
+  function note(text) {
+    notice = {text, until: Date.now() + 5000};
+    show();
+  }
 
   function build() {
     element = document.createElement('div');
@@ -45,20 +51,14 @@ const Banner = (() => {
           !confirm('Power off: stop the running output and the DHB, then turn the gate driver supplies off?')) return;
       send && send({type: 'supply_power', on: on ? 1 : 0});
     };
+    // Start at once, no question asked; what it cannot start shown in the status line
     element.querySelector('#supply_run').onclick = () => {
       if (!last || !send) return;
-      let what;
       if (runSource) {
         const problem = runSource.check();
-        if (problem) { alert(`Start: ${problem}`); return; }
-        what = runSource.describe();
-      } else {
-        const loaded = last.waveform ? last.waveform[0] : 0;
-        what = loaded ? `the loaded waveform (${loaded} point${loaded === 1 ? '' : 's'})` : '0 V (no waveform loaded)';
+        if (problem) { note(`Start: ${problem}`); return; }
+        runSource.load();
       }
-      const from = last.supply === 'off' ? 'the gate driver supplies, then ' : '';
-      if (!confirm(`Start: ${from}the DHB's precharge, then the output in closed loop on ${what} until Stop?`)) return;
-      if (runSource) runSource.load();
       send({type: 'supply_run'});
     };
     element.querySelector('#supply_stop').onclick = () => send && send({type: 'supply_stop'});
@@ -102,6 +102,7 @@ const Banner = (() => {
     const reasons = {1: 'a trip', 2: 'the gate driver supplies not on in time', 3: 'the DHB not running in time',
                      4: 'the output not running in time'};
     if (reasons[ended] && supply !== 'running' && supply !== 'starting') parts.push(`the last start ended by ${reasons[ended]}`);
+    if (notice && Date.now() < notice.until) parts.unshift(notice.text);
     detail.textContent = parts.join(' · ');
   }
 
