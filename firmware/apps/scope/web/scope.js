@@ -567,26 +567,29 @@ function plotValues(entry, idx, hovering) {
   return html;
 }
 
-// a drag across a plot zooms in, a double-click out: a long capture is reduced again for the
-// range shown, a short one only scaled
+// a drag across a plot zooms in, a double-click out; the range shown stays for the captures
+// that come after: a long capture is reduced again for it, a short one only scaled
+let zoom = null;            // [from, to] of the x axis, s, or null for all of the capture
 function zoomTo(range) {
-  if (capture && capture.long) {
-    capture.zoom = range;
-    plotCapture();
-    return;
-  }
-  area.setZoom(range);
+  zoom = range;
+  plotCapture();
 }
 
-// a long capture's samples in the range shown (capture.zoom, s) to the plots' columns: every
+// the zoom for the capture, or null when the capture has nothing in it
+function zoomFor(from, to) {
+  return zoom && zoom[0] < to && zoom[1] > from ? zoom : null;
+}
+
+// a long capture's samples in the range shown (zoom, s) to the plots' columns: every
 // sample when there are few, else the minimum and maximum of each column at its two ends
 function reduceLong() {
   const {header, samples} = capture;
   const n = header.length, rate = header.sample_rate, pre = header.pre;
   let first = 0, end = n;
-  if (capture.zoom) {
-    first = Math.max(0, Math.floor(capture.zoom[0] * rate + pre));
-    end = Math.min(n, Math.ceil(capture.zoom[1] * rate + pre) + 1);
+  const range = zoomFor(-pre / rate, (n - 1 - pre) / rate);
+  if (range) {
+    first = Math.max(0, Math.floor(range[0] * rate + pre));
+    end = Math.min(n, Math.ceil(range[1] * rate + pre) + 1);
     if (end - first < 2) { first = Math.max(0, first - 1); end = Math.min(n, first + 2); }
   }
   const count = end - first;
@@ -638,7 +641,9 @@ function plotCapture() {
     for (let i = 0; i < ch.length; i++) line[i] = unit(ch[i]);
     return {line};
   });
-  area.setData({time: capture.time, channels});
+  const time = capture.time;
+  area.zoom = capture.long || time.length === 0 ? null : zoomFor(time[0], time[time.length - 1]);
+  area.setData({time, channels});
   updateMeasurements();
 }
 
@@ -830,7 +835,7 @@ function downloadCapture(header) {
     const records = Math.min(header.length, event.data.byteLength / STREAM_RECORD_BYTES);
     const samples = new Int16Array(event.data, 0, records * CHANNELS);
     const seconds = (performance.now() - d.started) / 1000;
-    capture = {header: {...header, length: records}, samples, long: true, zoom: null};
+    capture = {header: {...header, length: records}, samples, long: true};
     if (header.sources && config && header.sources.some((source, c) => source !== config.sources[c])) {
       config.sources = header.sources.slice();
       config.sources.forEach((source, c) => { $(`source${c}`).value = source; });
