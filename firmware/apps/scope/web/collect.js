@@ -15,6 +15,11 @@
 // saves the next seconds of samples as they come. Settings go to the board over /ws as on the
 // scope page, and a change starts the collection again. The plots, their units and their
 // layout are plots.js's, shared with the scope page.
+//
+// The stream's socket and its samples are a worker's (collect_worker.js), which hands this page
+// the 1 ms points (and the samples for Record raw): the page's drawing or a busy tab cannot
+// stop the reading, which the board's short ring would not survive (Chromium stops reading a
+// WebSocket whose page has not taken its messages; a page frozen for 2 s overran the board).
 'use strict';
 
 const STREAM_PORT = 5004;
@@ -202,39 +207,25 @@ function start() {
   if (stream) return;
   sendConfig();
   const rate = sampleRate();
-  const s = {
-    socket: new WebSocket(`ws://${location.hostname}:${STREAM_PORT}/`),
-    rate, perMs: rate / 1000, bytes: 0, started: 0, samples: 0, stopping: false,
-    next: Math.floor(rate / 1000), // the first sample of the next point
-    min: new Float64Array(CHANNELS).fill(Infinity),
-    max: new Float64Array(CHANNELS).fill(-Infinity),
-    sum: new Float64Array(CHANNELS), n: 0,
-    first: new Float64Array(CHANNELS),
-  };
+  // the socket and the samples in a worker (collect_worker.js): this page's work cannot hold
+  // the reading up
+  const s = {worker: new Worker('collect_worker.js'), rate, bytes: 0, started: 0};
   points.count = 0;
-  s.socket.binaryType = 'arraybuffer';
-  s.socket.onopen = () => { s.started = performance.now(); };
-  s.socket.onmessage = event => {
-    s.bytes += event.data.byteLength;
-    take(s, new Int16Array(event.data));
-    if (recording) record(event.data);
-  };
-  s.socket.onclose = () => {
+  s.worker.onmessage = event => {
+    const m = event.data;
     if (stream !== s) return;
-    stream = null;
-    stopped();
-    if (!s.stopping) {
-      // the board's status tells an overrun from a stream that another page took over
-      $('status').textContent = 'the stream ended…';
-      setTimeout(() => {
-        $('status').textContent = boardStatus.lost_words ?
-          `stopped by the board: the PC fell more than the board's 10 MB ring (168 ms at the fastest rate) behind at ${formatRate(rate)} ` +
-          `(overrun); the link carries up to about ${STREAM_MAX_BYTES / 1e6} MB/s` :
-          'the stream was closed: another page or client may have taken it (the board serves one at a time)';
-        $('status').classList.add('error');
-      }, 600);
+    if (m.type === 'points') {
+      s.bytes = m.bytes;
+      addPoints(m.count, m.values);
+    } else if (m.type === 'raw') {
+      if (recording) record(m.buffer);
+    } else if (m.type === 'open') {
+      s.started = performance.now();
+    } else if (m.type === 'closed') {
+      ended(s);
     }
   };
+  s.worker.postMessage({type: 'start', url: `ws://${location.hostname}:${STREAM_PORT}/`, rate});
   stream = s;
   setLive(true);
   $('start').classList.add('active');
@@ -242,6 +233,22 @@ function start() {
   $('record_points').disabled = false;
   $('status').classList.remove('error');
   requestAnimationFrame(draw);
+}
+
+// the stream closed by the board
+function ended(s) {
+  s.worker.terminate();
+  stream = null;
+  stopped();
+  // the board's status tells an overrun from a stream that another page took over
+  $('status').textContent = 'the stream ended…';
+  setTimeout(() => {
+    $('status').textContent = boardStatus.lost_words ?
+      `stopped by the board: the PC fell more than the board's 10 MB ring (168 ms at the fastest rate) behind at ${formatRate(s.rate)} ` +
+      `(overrun); the link carries up to about ${STREAM_MAX_BYTES / 1e6} MB/s` :
+      'the stream was closed: another page or client may have taken it (the board serves one at a time)';
+    $('status').classList.add('error');
+  }, 600);
 }
 
 function stopped() {
@@ -256,47 +263,25 @@ function stopped() {
 
 function stop() {
   if (!stream) return;
-  stream.stopping = true;
-  stream.socket.close();
+  const worker = stream.worker;
+  worker.onmessage = event => { if (event.data.type === 'closed') worker.terminate(); };
+  worker.postMessage({type: 'stop'});
   stream = null;
   stopped();
 }
 
-// samples into 1 ms points: point k is samples floor(k*perMs) .. floor((k+1)*perMs)-1
-function take(s, data) {
-  const n = data.length / CHANNELS;
-  let at = 0;
-  while (at < n) {
-    const end = Math.min(n, at + (s.next - s.samples));    // where this point ends, or the data
-    if (s.n === 0 && end > at) {
-      for (let c = 0; c < CHANNELS; c++) s.first[c] = data[at * CHANNELS + c];
+// the worker's 1 ms points into the ring (point k is samples floor(k*perMs) ..
+// floor((k+1)*perMs)-1 of the stream): for each, CHANNELS times min, max, mean, first
+function addPoints(count, values) {
+  for (let k = 0, v = 0; k < count; k++) {
+    const slot = points.count % MAX_POINTS;
+    for (let c = 0; c < CHANNELS; c++, v += 4) {
+      points.min[c][slot] = values[v];
+      points.max[c][slot] = values[v + 1];
+      points.mean[c][slot] = values[v + 2];
+      points.sample[c][slot] = values[v + 3];
     }
-    for (let c = 0; c < CHANNELS; c++) {
-      let min = s.min[c], max = s.max[c], sum = s.sum[c];
-      for (let i = at * CHANNELS + c, last = end * CHANNELS; i < last; i += CHANNELS) {
-        const v = data[i];
-        if (v < min) min = v;
-        if (v > max) max = v;
-        sum += v;
-      }
-      s.min[c] = min; s.max[c] = max; s.sum[c] = sum;
-    }
-    s.n += end - at;
-    s.samples += end - at;
-    at = end;
-    if (s.samples === s.next) {
-      const slot = points.count % MAX_POINTS;
-      for (let c = 0; c < CHANNELS; c++) {
-        points.min[c][slot] = s.min[c];
-        points.max[c][slot] = s.max[c];
-        points.mean[c][slot] = s.sum[c] / s.n;
-        points.sample[c][slot] = s.first[c];
-        s.min[c] = Infinity; s.max[c] = -Infinity; s.sum[c] = 0;
-      }
-      s.n = 0;
-      points.count++;
-      s.next = Math.floor((points.count + 1) * s.perMs);
-    }
+    points.count++;
   }
 }
 
@@ -518,14 +503,17 @@ async function finishPointRecording() {
 function startRecording() {
   if (!stream || recording) return;
   const seconds = Math.max(1, Math.min(60, +$('record_seconds').value || 5));
-  recording = {buffers: [], bytes: 0, until: performance.now() + 1000 * seconds, rate: stream.rate};
+  // the seconds counted in samples, so the file has them all whenever they arrive
+  recording = {buffers: [], bytes: 0, want: Math.round(seconds * stream.rate) * RECORD_BYTES, rate: stream.rate};
+  stream.worker.postMessage({type: 'raw', on: true});
   $('record').classList.add('active');
 }
 
 function record(buffer) {
-  recording.buffers.push(buffer);
-  recording.bytes += buffer.byteLength;
-  if (performance.now() >= recording.until) finishRecording();
+  const take = Math.min(buffer.byteLength, recording.want - recording.bytes);
+  recording.buffers.push(take < buffer.byteLength ? buffer.slice(0, take) : buffer);
+  recording.bytes += take;
+  if (recording.bytes >= recording.want) finishRecording();
 }
 
 // int16 little endian, eight channels interleaved, the sample rate in the name
@@ -533,6 +521,7 @@ function finishRecording() {
   if (!recording) return;
   const r = recording;
   recording = null;
+  if (stream) stream.worker.postMessage({type: 'raw', on: false});
   $('record').classList.remove('active');
   if (r.bytes > 0) {
     download(r.buffers, `stream_${r.rate}Sps_8ch_int16le_${r.bytes / RECORD_BYTES}samples.bin`,
