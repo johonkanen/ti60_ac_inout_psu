@@ -93,6 +93,12 @@ for tckd in (1.5, 3.0, 4.5):
         ddr_tb.add_config(name=f"tckd_{tckd}_lo_{'lags' if lo_lags else 'leads'}",
                           generics=dict(tckd_ns=tckd, lo_lags=lo_lags))
 
+axi_tb = lib.test_bench("hyperram_axi_tb")
+for tckd in (1.5, 3.0, 4.5):
+    for lo_lags in (False, True):
+        axi_tb.add_config(name=f"tckd_{tckd}_lo_{'lags' if lo_lags else 'leads'}",
+                          generics=dict(tckd_ns=tckd, lo_lags=lo_lags))
+
 sys.path.append(str(root / "source" / "ethernet" / "sim"))
 import ethernet_test_frames
 frame_directory = Path(__file__).parent / "vunit_out" / "ethernet_frames"

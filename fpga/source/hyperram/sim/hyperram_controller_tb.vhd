@@ -81,6 +81,7 @@ begin
     port map(clock, hyperram_in, hyperram_out, fpga_out, fpga_in);
 
     u_model : entity work.hyperram_model
+    generic map(g_die_crossing_is_error => false)
     port map(ck, cs_n, reset_n, dq, rwds);
 
 ------------------------------------------------------------------------

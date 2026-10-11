@@ -226,7 +226,7 @@ begin
     end process;
 
     u_model : entity work.hyperram_model
-    generic map(g_tckd => tckd_ns * 1 ns, g_tckdi => tckd_ns * 1 ns - 1.05 ns)
+    generic map(g_tckd => tckd_ns * 1 ns, g_tckdi => tckd_ns * 1 ns - 1.05 ns, g_die_crossing_is_error => false)
     port map(ck, cs_n, reset_n, dq, rwds);
 
     user_side : process(main_clock)

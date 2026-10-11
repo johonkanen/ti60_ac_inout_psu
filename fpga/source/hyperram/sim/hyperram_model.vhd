@@ -5,7 +5,10 @@ library ieee;
     use work.hyperram_pkg.all;
 
 -- Behavioural model of a dual die HyperRAM (W959D8NFYA) for simulation.
--- Fixed latency only. Memory is modelled with g_address_bits word addresses per die.
+-- Fixed latency only. Memory is modelled with g_address_bits word addresses per die. A
+-- configuration register write applies to both dies (whether the device does so is not
+-- known; the controllers here do not depend on it). A burst that crosses from one die to the
+-- other is an error.
 -- Latency counting follows the same reading of the datasheet as the controller,
 -- so it verifies the controller logic, not that interpretation.
 entity hyperram_model is
@@ -14,7 +17,11 @@ entity hyperram_model is
         g_tckd         : time := 4 ns;      -- CK to DQ/RWDS valid on reads
         g_tckdi        : time := 4 ns;      -- CK to the previous DQ/RWDS invalid, X until g_tckd
         g_tcsm         : time := 4 us;
-        g_stuck_dq_bit : integer := -1      -- >= 0 forces that DQ bit low on reads, for testing testers
+        g_stuck_dq_bit : integer := -1;     -- >= 0 forces that DQ bit low on reads, for testing testers
+        -- a word on the other die than the burst's first is an error; false for the controllers
+        -- that keep CK running after a read's last word (hyperram_ddr_controller,
+        -- hyperram_controller), whose reads at the top of a die burst on past it
+        g_die_crossing_is_error : boolean := true
     );
     port(
         ck      : in std_logic;
@@ -44,7 +51,8 @@ begin
 
     model : process
         variable memory           : memory_array(0 to 2**(g_address_bits+1)-1) := (others => (others => 'U'));
-        variable cr0_value         : std_logic_vector(15 downto 0) := config_register_0_default;
+        variable cr0_value        : std_logic_vector(15 downto 0) := config_register_0_default;
+        variable die              : natural range 0 to 1;
         variable ca               : hyperram_header;
         variable edge             : natural;
         variable first_data_edge  : natural;
@@ -55,9 +63,12 @@ begin
         variable wrap_words       : natural;
         variable cs_fall_time     : time;
 
+        -- the memory of the die the burst started on: a word on the other die is an error
         impure function memory_index(word_address : natural) return natural is
             variable a : unsigned(24 downto 0);
         begin
+            assert not g_die_crossing_is_error or (word_address / 2**24) mod 2 = die
+                report "hyperram model: burst across the die boundary" severity error;
             a := to_unsigned(word_address mod 2**25, 25);
             return to_integer(a(24) & a(g_address_bits-1 downto 0));
         end function;
@@ -112,6 +123,7 @@ begin
                     is_register := ca(46) = '1';
                     is_wrapped  := ca(45) = '0';
                     -- CR0[1:0] wrapped burst length in bytes: 00 128, 01 64, 10 16, 11 32
+                    die := (to_integer(unsigned(ca(44 downto 16)) & unsigned(ca(2 downto 0))) / 2**24) mod 2;
                     CASE cr0_value(1 downto 0) is
                         WHEN "00"   => wrap_words := 64;
                         WHEN "01"   => wrap_words := 32;
