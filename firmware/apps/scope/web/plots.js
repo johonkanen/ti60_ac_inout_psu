@@ -4,6 +4,8 @@
 // y range of each unit, auto or fixed, and on the collection page the band or the instantaneous
 // value), a handle under it that sets its height, and a values panel on its right. The layout is
 // this viewer's, kept in the browser; the scaling is the board's (scaling.json), for everyone.
+// The channel clicked last is drawn over the others: a click on its curve (the one nearest the
+// click), or showing it again by its name.
 'use strict';
 
 const CHANNELS = 8;
@@ -139,7 +141,7 @@ class PlotArea {
   //   draw(u, entry)  drawn over a plot after it (markers)
   constructor(options) {
     this.o = options;
-    this.layout = {count: '2', plotOf: null, ranges: {}, heights: {}, modes: {}, hidden: []};
+    this.layout = {count: '2', plotOf: null, ranges: {}, heights: {}, modes: {}, hidden: [], order: []};
     this.visible = new Array(CHANNELS).fill(true);
     this.plots = [];
     this.data = null;     // {time, channels: [{line | mean, min, max, sample}]}, in units
@@ -153,6 +155,17 @@ class PlotArea {
     if (!Array.isArray(this.layout.hidden) || this.layout.hidden.length !== CHANNELS) {
       this.layout.hidden = new Array(CHANNELS).fill(false);
     }
+    // the drawing order, the last on top: every channel once
+    const order = Array.isArray(this.layout.order) ? this.layout.order.filter(c => c >= 0 && c < CHANNELS) : [];
+    this.layout.order = [...new Set([...order, ...Array.from({length: CHANNELS}, (_, c) => c)])];
+  }
+
+  // channel c drawn over the others
+  toFront(c) {
+    if (this.layout.order[CHANNELS - 1] === c) return;
+    this.layout.order = [...this.layout.order.filter(x => x !== c), c];
+    this.save();
+    this.rebuild();
   }
 
   save() {
@@ -242,7 +255,9 @@ class PlotArea {
     const plotUnits = [...new Set(channels.map(c => this.unitOf(c)))];
     const series = [{label: 'x'}];
     const bands = [];
-    for (const c of channels) {
+    // the series in the drawing order, the channel clicked last on top
+    const drawn = [...channels].sort((a, b) => layout.order.indexOf(a) - layout.order.indexOf(b));
+    for (const c of drawn) {
       const scale = this.unitOf(c);
       const base = series.length;
       const show = !layout.hidden[c];
@@ -297,7 +312,7 @@ class PlotArea {
     row.appendChild(side);
     this.o.container.appendChild(row);
 
-    const entry = {u: null, channels, side, hover: null, mode, key};
+    const entry = {u: null, channels, drawn, side, hover: null, mode, key};
     const area = this;
     const u = new uPlot({
       width: this.width(), height, scales, axes, series, bands,
@@ -322,6 +337,14 @@ class PlotArea {
     entry.u = u;
     // a double-click zooms out, when the plots zoom themselves
     div.addEventListener('dblclick', () => { if (!this.o.onSelect) this.setZoom(null); });
+    // a click (not a drag) on a curve: that channel on top
+    let down = null;
+    div.addEventListener('mousedown', e => { down = [e.clientX, e.clientY]; });
+    div.addEventListener('click', e => {
+      if (!down || Math.abs(e.clientX - down[0]) > 3 || Math.abs(e.clientY - down[1]) > 3) return;
+      const c = this.nearestChannel(entry, u.cursor.left, u.cursor.top);
+      if (c != null) this.toFront(c);
+    });
 
     // the y range of each unit: auto, or fixed at min..max (from what is shown when switched)
     for (const label of heading.querySelectorAll('label.range[data-unit]')) {
@@ -361,10 +384,14 @@ class PlotArea {
     for (const span of heading.querySelectorAll('span[data-channel]')) {
       span.addEventListener('click', () => {
         const c = +span.dataset.channel;
-        const base = 1 + 3 * channels.indexOf(c);
+        const base = 1 + 3 * drawn.indexOf(c);
         layout.hidden[c] = !layout.hidden[c];
         this.save();
         span.classList.toggle('off', layout.hidden[c]);
+        if (!layout.hidden[c] && layout.order[CHANNELS - 1] !== c) {
+          this.toFront(c);      // shown again: on top (the plots are made again)
+          return;
+        }
         for (let k = 0; k < 3; k++) u.setSeries(base + k, {show: !layout.hidden[c] && (k === 2 || mode === 'band')});
         this.showValues(entry);
       });
@@ -404,7 +431,7 @@ class PlotArea {
     this.data = data;
     for (const p of this.plots) {
       const plotData = [data.time];
-      for (const c of p.channels) {
+      for (const c of p.drawn) {
         const ch = data.channels[c];
         const line = ch.line || (p.mode === 'sample' ? ch.sample : ch.mean);
         plotData.push(ch.min || line, ch.max || line, line);
@@ -413,6 +440,21 @@ class PlotArea {
       if (this.zoom) p.u.setScale('x', {min: this.zoom[0], max: this.zoom[1]});
       if (p.hover == null) this.showValues(p);
     }
+  }
+
+  // the shown channel of a plot whose line is nearest (within 20 pixels) to a point in it
+  nearestChannel(entry, left, top) {
+    const u = entry.u;
+    if (left == null || left < 0 || u.cursor.idx == null) return null;
+    let best = null, bestDistance = 20;
+    entry.drawn.forEach((c, k) => {
+      if (this.layout.hidden[c]) return;
+      const v = u.data[1 + 3 * k + 2][u.cursor.idx];
+      if (v == null || !Number.isFinite(v)) return;
+      const d = Math.abs(u.valToPos(v, u.series[1 + 3 * k + 2].scale) - top);
+      if (d < bestDistance) { bestDistance = d; best = c; }
+    });
+    return best;
   }
 
   // zoom every plot to [from, to] of the x axis, or back to the data's with null
