@@ -380,6 +380,175 @@ static uint16_t parse_syn_options(const uint8_t *o, size_t len)
 	return mss;
 }
 
+/* the connection from the handshake on: the stream's state and slots for this client */
+static void establish(void)
+{
+	s.state = ESTABLISHED;
+	s.end = TCP_STREAM_END_NONE;
+	s.progress = k_uptime_get();
+	s.acked_at = s.progress;
+	s.went_back_at = 0;
+	memset(&s.stats, 0, sizeof(s.stats));
+	fast_taken = fast.count;
+	prepare_slots();
+	LOG_INF("connection from %u.%u.%u.%u:%u", s.peer_ip[0], s.peer_ip[1], s.peer_ip[2],
+		s.peer_ip[3], s.peer_port);
+	if (s.source->connected != NULL) {
+		s.source->connected(s.user_data);
+	}
+}
+
+/*
+ * Another client while a stream runs: a candidate, taken through the handshake beside the
+ * stream. It takes the stream over only with a complete request ("GET ..." and the empty
+ * line): the old client is then closed the way it accepts (tcp_stream_close(): a reset once
+ * all sent is acknowledged; one at an unacknowledged point it ignores, RFC 5961), and once
+ * it is, the candidate gets the stream. One that sends nothing for CANDIDATE_MS is reset
+ * instead and the stream goes on (a browser's speculative connection took it over before,
+ * and then sent nothing).
+ */
+#define CANDIDATE_MS      2000
+#define CANDIDATE_REQUEST 1024
+
+static struct {
+	bool active;
+	bool ready;             /* its request is in: it takes over once the old client is closed */
+	uint8_t mac[6];
+	uint8_t ip[4];
+	uint16_t port;
+	bool scales;
+	uint8_t shift;
+	uint16_t mss;
+	uint32_t iss;
+	uint32_t rcv_nxt;
+	int64_t since;
+	size_t len;
+	char request[CANDIDATE_REQUEST];
+} cand;
+
+/* a control frame to the candidate: the stream's template and numbers lent for it */
+static void send_candidate(uint8_t flags)
+{
+	uint8_t template[HDR_LEN];
+	uint32_t iss = s.iss, rcv_nxt = s.rcv_nxt;
+	bool scales = s.peer_scales;
+
+	memcpy(template, s.template, HDR_LEN);
+	memcpy(&s.template[0], cand.mac, 6);
+	memcpy(&s.template[IP + 16], cand.ip, 4);
+	sys_put_be16(cand.port, &s.template[TCP + 2]);
+	s.iss = cand.iss;
+	s.rcv_nxt = cand.rcv_nxt;
+	s.peer_scales = cand.scales;
+	send_control(flags, 0, NULL, 0);
+	memcpy(s.template, template, HDR_LEN);
+	s.iss = iss;
+	s.rcv_nxt = rcv_nxt;
+	s.peer_scales = scales;
+}
+
+static void drop_candidate(const char *why)
+{
+	if (cand.active) {
+		send_candidate(TCP_RST | TCP_ACK);
+		cand.active = false;
+		LOG_INF("a connection from %u.%u.%u.%u:%u %s: dropped, the stream goes on", cand.ip[0],
+			cand.ip[1], cand.ip[2], cand.ip[3], cand.port, why);
+	}
+}
+
+static void candidate_syn(const uint8_t *f, const uint8_t *tcp, size_t doff, uint32_t seq)
+{
+	bool scales = s.peer_scales;
+	uint8_t shift = s.peer_shift;
+	uint16_t port = sys_get_be16(&tcp[0]);
+
+	if (cand.active && cand.port == port && memcmp(cand.ip, &f[26], 4) == 0) {
+		if (seq + 1 == cand.rcv_nxt) {
+			send_candidate(TCP_SYN | TCP_ACK);   /* our SYN-ACK was lost */
+		}
+		return;
+	}
+	if (cand.active && (cand.len > 0 || cand.ready)) {
+		return;         /* the one asking already goes first; this one's TCP tries again */
+	}
+	memcpy(cand.mac, &f[6], 6);
+	memcpy(cand.ip, &f[26], 4);
+	cand.port = port;
+	cand.mss = parse_syn_options(&tcp[20], doff - 20);
+	cand.scales = s.peer_scales;
+	cand.shift = s.peer_shift;
+	s.peer_scales = scales;
+	s.peer_shift = shift;
+	cand.iss = sys_rand32_get();
+	cand.rcv_nxt = seq + 1;
+	cand.since = k_uptime_get();
+	cand.len = 0;
+	cand.ready = false;
+	cand.active = true;
+	send_candidate(TCP_SYN | TCP_ACK);
+}
+
+/* the candidate, its request in and the old client closed, takes the stream over */
+static void take_over(void)
+{
+	cand.active = false;
+	memcpy(s.peer_mac, cand.mac, 6);
+	memcpy(s.peer_ip, cand.ip, 4);
+	s.peer_port = cand.port;
+	s.peer_scales = cand.scales;
+	s.peer_shift = cand.shift;
+	s.iss = cand.iss;
+	s.rcv_nxt = cand.rcv_nxt;
+	s.una = s.nxt = s.max = s.nxt_segment = 0;
+	s.reply_len = 0;
+	s.window = 0;
+	set_template();
+	if (cand.mss < s.seg_len) {
+		LOG_WRN("client MSS %u below a segment of %u", cand.mss, s.seg_len);
+		send_control(TCP_RST | TCP_ACK, 0, NULL, 0);
+		s.state = LISTEN;
+		return;
+	}
+	establish();
+	if (s.source->received != NULL) {
+		s.source->received((const uint8_t *)cand.request, cand.len, s.user_data);
+	}
+}
+
+/* a frame of the candidate's: the end of its handshake, its request */
+static void candidate_frame(uint8_t flags, uint32_t seq, const uint8_t *data, size_t data_len)
+{
+	if (flags & TCP_RST) {
+		cand.active = false;
+		return;
+	}
+	if (data_len > 0 && seq == cand.rcv_nxt && !cand.ready) {
+		size_t n = MIN(data_len, sizeof(cand.request) - 1 - cand.len);
+
+		memcpy(&cand.request[cand.len], data, n);
+		cand.len += n;
+		cand.request[cand.len] = '\0';
+		cand.rcv_nxt += data_len;
+		send_candidate(TCP_ACK);
+		if (strstr(cand.request, "\r\n\r\n") != NULL) {
+			if (strncmp(cand.request, "GET ", 4) == 0) {
+				cand.ready = true;
+			} else {
+				drop_candidate("sent no WebSocket request");
+			}
+			return;
+		}
+		if (cand.len >= sizeof(cand.request) - 1) {
+			drop_candidate("sent too long a request");
+			return;
+		}
+	}
+	if (flags & TCP_FIN) {
+		drop_candidate("closed without a request");
+	}
+}
+
 static void handle_frame(const uint8_t *f, size_t len)
 {
 	size_t ihl = (f[14] & 0x0f) * 4;
@@ -400,6 +569,12 @@ static void handle_frame(const uint8_t *f, size_t len)
 	data = tcp + doff;
 	data_len = ip_len - ihl - doff;
 
+	if (cand.active && !from_peer && memcmp(&f[26], cand.ip, 4) == 0 &&
+	    sys_get_be16(&tcp[0]) == cand.port && !(flags & TCP_SYN)) {
+		candidate_frame(flags, seq, data, data_len);
+		return;
+	}
+
 	if (flags & TCP_RST) {
 		if (from_peer) {
 			s.end = TCP_STREAM_END_CLIENT_RESET;
@@ -414,16 +589,8 @@ static void handle_frame(const uint8_t *f, size_t len)
 			return;
 		}
 		if (s.state == ESTABLISHED && !from_peer) {
-			/*
-			 * A new client takes over. The old one is closed the way it accepts, a
-			 * reset once all sent is acknowledged (tcp_stream_close()); the new one's
-			 * SYN is dropped meanwhile and taken when its TCP sends it again.
-			 */
-			if (!s.closing) {
-				LOG_INF("a new client: closing the stream of the old one");
-				s.end = TCP_STREAM_END_NEW_CLIENT;
-				tcp_stream_close();
-			}
+			/* a new client: a candidate until it asks for the stream */
+			candidate_syn(f, tcp, doff, seq);
 			return;
 		}
 		if (s.state != LISTEN) {
@@ -457,19 +624,7 @@ static void handle_frame(const uint8_t *f, size_t len)
 		if (!(flags & TCP_ACK) || sys_get_be32(&tcp[8]) != s.iss + 1) {
 			return;
 		}
-		s.state = ESTABLISHED;
-		s.end = TCP_STREAM_END_NONE;
-		s.progress = k_uptime_get();
-		s.acked_at = s.progress;
-		s.went_back_at = 0;
-		memset(&s.stats, 0, sizeof(s.stats));
-		fast_taken = fast.count;
-		prepare_slots();
-		LOG_INF("connection from %u.%u.%u.%u:%u", s.peer_ip[0], s.peer_ip[1], s.peer_ip[2],
-			s.peer_ip[3], s.peer_port);
-		if (s.source->connected != NULL) {
-			s.source->connected(s.user_data);
-		}
+		establish();
 	}
 
 	if (flags & TCP_ACK) {
@@ -560,6 +715,17 @@ static void stream_thread(void *p1, void *p2, void *p3)
 	ARG_UNUSED(p3);
 
 	for (;;) {
+		if (cand.active && cand.ready) {
+			if (s.state != ESTABLISHED) {
+				take_over();
+			} else if (!s.closing) {
+				LOG_INF("a new client asked for the stream: closing the stream of the old one");
+				s.end = TCP_STREAM_END_NEW_CLIENT;
+				tcp_stream_close();
+			}
+		} else if (cand.active && k_uptime_get() - cand.since > CANDIDATE_MS) {
+			drop_candidate("asked for nothing");
+		}
 		while (rx_tail != rx_head) {
 			uint32_t tail = rx_tail;
 

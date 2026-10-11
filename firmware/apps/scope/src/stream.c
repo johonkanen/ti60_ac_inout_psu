@@ -47,6 +47,7 @@ static uint64_t written;        /* records the DMA has taken, extended to 64 bit
 static uint32_t written_low;
 static atomic_t lost;
 static atomic_t active;
+static const char *last_end = "none";      /* why the last stream ended (scope_stream_end()) */
 
 static void report(struct k_work *work);
 static K_WORK_DELAYABLE_DEFINE(report_work, report);
@@ -90,6 +91,7 @@ static void connected(void *user_data)
 static void closed(void *user_data)
 {
 	capture_stream_stop();
+	last_end = atomic_get(&lost) ? "overrun" : tcp_stream_end_name(tcp_stream_last_end());
 	atomic_set(&active, 0);
 	LOG_INF("stream closed%s", atomic_get(&lost) ? " by an overrun" : "");
 }
@@ -157,10 +159,7 @@ uint32_t scope_stream_lost(void)
 
 const char *scope_stream_end(void)
 {
-	if (atomic_get(&active)) {
-		return "none";
-	}
-	return atomic_get(&lost) ? "overrun" : tcp_stream_end_name(tcp_stream_last_end());
+	return last_end;
 }
 
 int scope_stream_init(void)

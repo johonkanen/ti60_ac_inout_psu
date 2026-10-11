@@ -124,7 +124,7 @@ void scope_settings_load(void);
 int scope_stream_init(void);
 bool scope_stream_active(void);
 uint32_t scope_stream_lost(void);
-/* why the last stream ended: "none" (still running or none yet), "overrun", "client reset",
+/* why the last stream that ended did: "none" (none yet), "overrun", "client reset",
  * "client closed", "client gone" (nothing acknowledged), "new client" (another connection
  * took over), "closed by the source" */
 const char *scope_stream_end(void);

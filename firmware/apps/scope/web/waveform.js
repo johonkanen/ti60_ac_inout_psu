@@ -574,7 +574,11 @@ function showBoard() {
     parts.push('the firmware has no waveform player: the points stay here');
   }
   $('board').innerHTML = parts.map(l => `<div>${l}</div>`).join('');
-  $('load').disabled = !waveformSupport || !points.length || points.length > capacity();
+  // why it cannot be loaded, on the button too
+  const why = !waveformSupport ? 'the firmware has no waveform player' : !points.length ? 'no points' :
+    points.length > capacity() ? `${points.length} points, more than the board's ${capacity()}: fewer points, or longer holds` : '';
+  $('load').disabled = why !== '';
+  $('load').title = why ? `cannot load: ${why}` : "write the points into the FPGA's table";
 }
 
 // ------------------------------------------------------------------ generators and files
