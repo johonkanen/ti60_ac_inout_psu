@@ -155,6 +155,14 @@ uint32_t scope_stream_lost(void)
 	return atomic_get(&lost);
 }
 
+const char *scope_stream_end(void)
+{
+	if (atomic_get(&active)) {
+		return "none";
+	}
+	return atomic_get(&lost) ? "overrun" : tcp_stream_end_name(tcp_stream_last_end());
+}
+
 int scope_stream_init(void)
 {
 	int ret = ws_stream_start(net_if_get_default(), SCOPE_STREAM_PORT, &source, NULL);

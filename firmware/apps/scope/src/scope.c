@@ -40,6 +40,7 @@ static const char *const mode_names[] = {"auto", "normal", "free"};
 #ifdef CONFIG_SCOPE_STREAM
 #define stream_active scope_stream_active
 #define stream_lost   scope_stream_lost
+#define stream_end    scope_stream_end
 #else
 static bool stream_active(void)
 {
@@ -49,6 +50,11 @@ static bool stream_active(void)
 static uint32_t stream_lost(void)
 {
 	return 0;
+}
+
+static const char *stream_end(void)
+{
+	return "none";
 }
 #endif
 
@@ -699,7 +705,7 @@ static void broadcast_status(void)
 		 "\"control\":[%.3f,%.2f,%.2f,%.2f,%u,%u],\"waveform\":[%u,%u],"
 		 "\"boost\":[%u,%.3f,%.4f,%.3f,%.3f,%.3f,%.3f,%.2f,%u],"
 		 "\"touch\":[%u,%u,%u,%u,%d,%d,%u,%u],"
-		 "\"supply\":\"%s\",\"gate_power\":%u,\"sequencer\":%u}",
+		 "\"supply\":\"%s\",\"gate_power\":%u,\"sequencer\":%u,\"stream_end\":\"%s\"}",
 		 status.state, status.captures, status.forced ? "true" : "false",
 		 status.running ? "true" : "false", stream_lost(), adc.rates[0], adc.rates[1],
 		 adc.sdm_rate, capture_gate_power_on(), copy_us, send_us, capture_dhb_status(),
@@ -717,7 +723,7 @@ static void broadcast_status(void)
 		 capture_boost_value(6), boost_state[1], touch_state[0], touch_state[1],
 		 touch_state[2], touch_state[3], touch_x, touch_y, panel_calibrating(),
 		 capture_touch_presses(), supply_state(), config.gate_power,
-		 capture_sequencer_state());
+		 capture_sequencer_state(), stream_end());
 	k_mutex_unlock(&scope_lock);
 
 	for (int i = 0; i < MAX_CLIENTS; i++) {

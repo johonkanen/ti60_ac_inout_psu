@@ -96,12 +96,15 @@ static struct {
 	int64_t acked_at;       /* the same, but not moved by a go-back */
 	bool open;
 	bool closing;           /* tcp_stream_close(): no new segments, a reset once all are in */
+	enum tcp_stream_end end; /* why it is ending, once that is decided */
 	uint8_t reply[REPLY_SIZE];
 	size_t reply_len;
 	uint16_t ip_id;
 	uint8_t template[HDR_LEN];
 	struct tcp_stream_stats stats;
 } s;
+
+static enum tcp_stream_end last_end = TCP_STREAM_END_NONE;
 
 static struct k_spinlock lock;      /* acked_segments and stats for other threads */
 static uint64_t acked_segments;
@@ -271,13 +274,17 @@ static void close_connection(void)
 {
 	bool was_open = s.state == ESTABLISHED;
 
+	if (was_open) {
+		last_end = s.end != TCP_STREAM_END_NONE ? s.end : TCP_STREAM_END_SOURCE;
+	}
 	s.state = LISTEN;
 	s.open = false;
 	s.closing = false;
 	if (was_open && s.source->closed != NULL) {
 		s.source->closed(s.user_data);
 	}
-	LOG_INF("closed after %llu bytes, %u retransmits", s.una, s.stats.retransmits);
+	LOG_INF("closed after %llu bytes, %u retransmits: %s", s.una, s.stats.retransmits,
+		tcp_stream_end_name(last_end));
 }
 
 static void set_nxt(uint64_t offset)
@@ -395,6 +402,7 @@ static void handle_frame(const uint8_t *f, size_t len)
 
 	if (flags & TCP_RST) {
 		if (from_peer) {
+			s.end = TCP_STREAM_END_CLIENT_RESET;
 			close_connection();
 		}
 		return;
@@ -413,11 +421,13 @@ static void handle_frame(const uint8_t *f, size_t len)
 			 */
 			if (!s.closing) {
 				LOG_INF("a new client: closing the stream of the old one");
+				s.end = TCP_STREAM_END_NEW_CLIENT;
 				tcp_stream_close();
 			}
 			return;
 		}
 		if (s.state != LISTEN) {
+			s.end = TCP_STREAM_END_NEW_CLIENT;
 			close_connection();
 		}
 		memcpy(s.peer_mac, &f[6], 6);
@@ -448,6 +458,7 @@ static void handle_frame(const uint8_t *f, size_t len)
 			return;
 		}
 		s.state = ESTABLISHED;
+		s.end = TCP_STREAM_END_NONE;
 		s.progress = k_uptime_get();
 		s.acked_at = s.progress;
 		s.went_back_at = 0;
@@ -476,6 +487,7 @@ static void handle_frame(const uint8_t *f, size_t len)
 	}
 
 	if (flags & TCP_FIN) {
+		s.end = TCP_STREAM_END_CLIENT_CLOSED;
 		s.rcv_nxt = seq + data_len + 1;
 		send_control(TCP_RST | TCP_ACK, s.nxt, NULL, 0);
 		close_connection();
@@ -575,6 +587,7 @@ static void stream_thread(void *p1, void *p2, void *p3)
 		}
 		if (s.max > s.una && k_uptime_get() - s.acked_at > GONE_MS) {
 			LOG_WRN("nothing acknowledged for %u ms: the client is gone", GONE_MS);
+			s.end = TCP_STREAM_END_CLIENT_GONE;
 			send_control(TCP_RST | TCP_ACK, s.una, NULL, 0);
 			close_connection();
 			continue;
@@ -645,11 +658,37 @@ void tcp_stream_open(void)
 
 void tcp_stream_close(void)
 {
+	if (s.end == TCP_STREAM_END_NONE) {
+		s.end = TCP_STREAM_END_SOURCE;
+	}
 	if (s.state == ESTABLISHED) {
 		s.closing = true;
 		s.progress = k_uptime_get();
 	} else if (s.state == SYN_RECEIVED) {
 		close_connection();
+	}
+}
+
+enum tcp_stream_end tcp_stream_last_end(void)
+{
+	return last_end;
+}
+
+const char *tcp_stream_end_name(enum tcp_stream_end end)
+{
+	switch (end) {
+	case TCP_STREAM_END_CLIENT_RESET:
+		return "client reset";
+	case TCP_STREAM_END_CLIENT_CLOSED:
+		return "client closed";
+	case TCP_STREAM_END_CLIENT_GONE:
+		return "client gone";
+	case TCP_STREAM_END_NEW_CLIENT:
+		return "new client";
+	case TCP_STREAM_END_SOURCE:
+		return "closed by the source";
+	default:
+		return "none";
 	}
 }
 

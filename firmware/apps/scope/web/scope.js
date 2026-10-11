@@ -611,12 +611,18 @@ function startStream() {
     $('stream_status').textContent = s.stopping ? '' : 'the stream ended…';
     $('stream_status').classList.toggle('error', !s.stopping);
     if (s.stopping) return;
-    // the board's status tells an overrun from a stream that another page took over
+    // the board's status says why (stream_end)
     setTimeout(() => {
-      $('stream_status').textContent = boardStatus.lost_words ?
-        `stream ended by the board: ${formatRate(rate)} is ${(STREAM_RECORD_BYTES * rate / 1e6).toFixed(1)} MB/s, ` +
-        `more than the link kept up with (overrun); the stream carries up to about ${STREAM_MAX_BYTES / 1e6} MB/s` :
-        'the stream was closed: another page or client may have taken it (the board serves one at a time)';
+      const why = {
+        'overrun': `stream ended by the board: ${formatRate(rate)} is ${(STREAM_RECORD_BYTES * rate / 1e6).toFixed(1)} MB/s, ` +
+                   `more than the link kept up with (overrun); the stream carries up to about ${STREAM_MAX_BYTES / 1e6} MB/s`,
+        'client gone': 'stream ended by the board: this PC acknowledged nothing for 3 s (a stalled browser or network?)',
+        'new client': 'the stream was taken over by another connection (another page, tab or program: the board serves one at a time)',
+        'client reset': 'the browser reset the stream connection',
+        'client closed': 'the browser closed the stream connection',
+      }[boardStatus.stream_end];
+      $('stream_status').textContent = why ||
+        `the stream ended (${boardStatus.stream_end || 'no reason given by the board'})`;
     }, 600);
   };
   stream = s;

@@ -75,4 +75,16 @@ uint64_t tcp_stream_acked(void);
 
 void tcp_stream_get_stats(struct tcp_stream_stats *stats);
 
+/* why the last connection ended */
+enum tcp_stream_end {
+	TCP_STREAM_END_NONE,          /* none ended yet */
+	TCP_STREAM_END_CLIENT_RESET,  /* the client reset it (RST) */
+	TCP_STREAM_END_CLIENT_CLOSED, /* the client closed it (FIN) */
+	TCP_STREAM_END_CLIENT_GONE,   /* nothing acknowledged for a while */
+	TCP_STREAM_END_NEW_CLIENT,    /* a connection from another client or port took over */
+	TCP_STREAM_END_SOURCE,        /* tcp_stream_close(): the source's decision */
+};
+enum tcp_stream_end tcp_stream_last_end(void);
+const char *tcp_stream_end_name(enum tcp_stream_end end);
+
 #endif

@@ -242,11 +242,19 @@ function ended(s) {
   stopped();
   // the board's status tells an overrun from a stream that another page took over
   $('status').textContent = 'the stream ended…';
+  // the board's status says why (stream_end)
   setTimeout(() => {
-    $('status').textContent = boardStatus.lost_words ?
-      `stopped by the board: the PC fell more than the board's 32 MB ring (about half a second at the fastest rate) behind at ${formatRate(s.rate)} ` +
-      `(overrun); the link carries up to about ${STREAM_MAX_BYTES / 1e6} MB/s` :
-      'the stream was closed: another page or client may have taken it (the board serves one at a time)';
+    const why = {
+      'overrun': `stopped by the board: the PC fell more than the board's 32 MB ring (about half a second at the ` +
+                 `fastest rate) behind at ${formatRate(s.rate)} (overrun); the link carries up to about ` +
+                 `${STREAM_MAX_BYTES / 1e6} MB/s`,
+      'client gone': 'stopped by the board: this PC acknowledged nothing for 3 s (a stalled browser or network?)',
+      'new client': 'the stream was taken over by another connection (another page, tab or program: the board serves one at a time)',
+      'client reset': 'the browser reset the stream connection',
+      'client closed': 'the browser closed the stream connection',
+    }[boardStatus.stream_end];
+    $('status').textContent = why ||
+      `the stream ended (${boardStatus.stream_end || 'no reason given by the board'})`;
     $('status').classList.add('error');
   }, 600);
 }
