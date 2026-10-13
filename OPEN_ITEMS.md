@@ -26,7 +26,15 @@ item when it is done; the commit that does it says so.
   supply_raise_test.py, -56 V in): Start to idle at 62 V, then 66 .. 80 V in 4 V steps, the DAB
   on: the link 62.1 / 66.1 / 70.2 / 73.8 / 78.0 / 80.1 V, the duty 0.11 / 0.17 / 0.20 / 0.25 /
   0.26 / 0.25 (it stops rising above 74 V: not the fitted model's regime there), the input
-  current 1.1 A at most, the secondary 1..4 V behind in the steps, 80.9 V held.
+  current 1.1 A at most, the secondary 1..4 V behind in the steps, 80.9 V held. At 80 V the
+  output on (supply_raise_test.py --output / --sine): 0 V held; a +-50 V 5 Hz sine fitted
+  49.84 V, offset -1.06 V, 2nd harmonic 1.6 %, the link held 80.0 V, the input 0.48 A.
+- **vfilt_out's readings carry aliased switching noise:** with the output switching, 220 V
+  p-p on single samples and +-50 V in switching period means at 80 V, lines at 13 and 14 kHz,
+  while the output current (sigma-delta) has nothing there (a 1 MS/s capture, --fast): the
+  board ADC reads each input at ~107 kS/s without an anti-alias filter, the DAB's 93.8 kHz
+  and the output's 120 kHz fold to ~13 kHz. The control sees some of it (u_ref a few V).
+  Fixes: the ADC's samples at quiet points (the shared carrier) or an analog anti-alias.
   Either polarity of the source: the leg its positive terminal is on switches (leg 1 when
   the input's voltage reads negative at the start; status bit 5, scope lane bit 6). On the
   board with the leads swapped (2026-10-13, -56 V in, 60 -> 63 -> 60 V): leg 1 switched, the
