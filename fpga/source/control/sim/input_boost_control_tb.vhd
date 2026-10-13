@@ -11,21 +11,31 @@ context vunit_lib.vunit_context;
     use work.dhb_modulator_pkg.all;
     use work.scaler_channels_pkg.all;
     use work.scope_pkg.all;
+    use work.input_boost_model_pkg.all;
+    use work.input_boost_plant_pkg.all;
 
--- input_boost_control with its voltage control on output_control_processor's core (the core
--- shared: the output's observer enabled, stepping at an output current's strobe twice a period)
--- on a boost converter's model, a period at a time: a DC source of 94.6 V (the lab supply's
--- 98.6 V less the diodes) through 15 uH (the inductance the polarity test's current pulses
--- suggest), its positive terminal on leg 2 (on leg 1 in a_reversed_input, the input's voltage
--- then read negative), the switch's on time as the DUT drives that leg's low side, the inductor's current rising
--- while it is on and falling at (V - Vs) / L after, stopping at zero (DCM) or not; the link a
--- 1.3 mF capacitor (the polarity test's charging) with a load. The link's voltage read three
--- times a period, with noise in noisy_readings. Checked: it holds the link at its reference
--- within the duty's limit, only the positive terminal's leg's low side ever switching, with the
--- source either way round; a load step; a load pulsing at
--- 100 Hz (an AC output's power); +-1 V of noise on the readings; the overvoltage stop (+-3 V of
--- noise then, single readings over it), the
--- watchdog, a trip and inhibit each stopping it.
+-- input_boost_control's RTL with its voltage control on output_control_processor's core (the
+-- core shared: the output's observer enabled, stepping at an output current's strobe twice a
+-- period) on the converter of input_boost_plant_pkg (hVHDL_ode's rk4, a period at a time): a DC
+-- source of 94.6 V through 15 uH, its positive terminal on leg 2 (on leg 1 in a_reversed_input,
+-- the input's voltage then read negative), the on time as the DUT drives that leg's low side;
+-- the link 1.3 mF with a load. The link read three times a period, with noise where a test
+-- asks.
+--
+-- The loop's dynamics over seconds are input_boost_model_tb's, in real numbers. Here, in
+-- milliseconds, every step the core makes is checked against input_boost_model_pkg's step fed
+-- the same inputs (the readings' sum and count, the reference, the ramp, d_max, the gains, the
+-- prefilter): the duty, the reference as ramped and the link's mean, within the fixed point's
+-- rounding. And what only the RTL has: the gate (only the low side of the positive terminal's
+-- leg, either way round), the registers, the duty's ceiling, every stop.
+--
+--   the_rtl_steps_as_the_model  a start ramping into the duty's limit, a reference step through
+--                               the prefilter
+--   a_reversed_input            leg 1's low side only, the status's leg bit
+--   the_duty_at_most_0_2        d_max written 0.5: the duty at 0.2
+--   the_overvoltage_stop        +-3 V of noise, single readings over the stop: no stop; under it: stopped
+--   the_watchdog, a_trip_and_inhibit   each stops it at once
+--   the_registers_defaults      the gains, the prefilter and the limits as reset
 entity input_boost_control_tb is
   generic (runner_cfg : string);
 end;
@@ -33,8 +43,6 @@ end;
 architecture vunit_simulation of input_boost_control_tb is
 
     constant base : natural := 1260;
-    constant t_period : real := 25.0e-6;
-    constant clocks   : natural := 3125;
 
     signal clock : std_logic := '0';
     signal bus_in, bus_out : fpga_interconnect_record := init_fpga_interconnect;
@@ -59,17 +67,20 @@ architecture vunit_simulation of input_boost_control_tb is
     signal control_ready : boolean;
     signal observer_probes : scope_sample_array(0 to 3);
     signal control_probes  : scope_sample_array(0 to 1);
-    signal noisy : boolean := false;    -- noise on each reading of the link,
-    signal noise : real := 1.0;         -- up to +-this, V
 
-    -- the plant, as the main process steps it
+    -- the plant
+    signal v_start  : real := 94.6;     -- the link at the plant's (re)start
+    signal restart  : boolean := false;
     signal v_link   : real := 94.6;
-    signal i_mean   : real := 0.0;
-    signal i_load   : real := 0.05;     -- a bleed
-    signal pulsing  : boolean := false; -- the load 0.3 * (1 - cos(2 pi 100 Hz t)) instead
-    signal other_on : natural := 0;     -- clocks with any other switch on
+    signal noisy    : boolean := false;
+    signal noise    : real := 3.0;      -- up to +-this on each reading, V
     signal reversed_source : boolean := false;  -- the source's positive terminal on leg 1
+    signal other_on : natural := 0;     -- clocks with any other switch on
     signal widest   : natural := 0;     -- the longest on time, clocks
+
+    -- the core's steps against the model's
+    signal steps_compared : natural := 0;
+    signal duty_error, target_error, v_error : real := 0.0;   -- the largest
 
 begin
 
@@ -107,30 +118,30 @@ begin
         end if;
     end process;
 
-    -- the plant: each period's on time from the gate, then the period's currents and charge
+    -- the plant: each period's on time from the gate, the period integrated at the next's start
     plant : process(clock)
         alias count is << signal .input_boost_control_tb.dut.count : natural >>;
-        constant vs  : real := 94.6;
-        constant l   : real := 15.0e-6;
-        constant c   : real := 1.3e-3;
+        variable converter : boost_plant := boost_plant_init;
         variable on_clocks : natural := 0;
-        variable i0, i1, i2, t_on, t_off, t2, area, charge : real := 0.0;
-        variable v : real := 94.6;
         variable seed1, seed2 : positive := 7;
         variable x : real;
         procedure reading is
         begin
             uniform(seed1, seed2, x);
             if noisy then
-                scaled(scaled_vdc_in) <= to_fixed(v_link + 2.0 * noise * (x - 0.5));
+                scaled(scaled_vdc_in) <= to_fixed(converter.v + 2.0 * noise * (x - 0.5));
             else
-                scaled(scaled_vdc_in) <= to_fixed(v_link);
+                scaled(scaled_vdc_in) <= to_fixed(converter.v);
             end if;
             scaled_ready <= true; scaled_channel <= scaled_vdc_in;
         end procedure;
     begin
         if rising_edge(clock) then
             scaled_ready <= false;
+            if restart then
+                converter := boost_plant_init;
+                converter.v := v_start;
+            end if;
             -- the switch: the low side of the positive terminal's leg; any other one is counted
             if reversed_source then
                 if leg2.high = '1' or leg2.low = '1' or leg1.high = '1' then
@@ -150,40 +161,14 @@ begin
             if count = 3 then
                 -- the period before: its on time
                 if on_clocks > widest then widest <= on_clocks; end if;
-                t_on  := real(on_clocks) * 8.0e-9;
-                t_off := t_period - t_on;
+                boost_plant_period(converter, real(on_clocks) * 8.0e-9, 0.05);
                 on_clocks := 0;
-                v := v_link;
-                i1 := i0 + vs * t_on / l;
-                area := (i0 + i1) / 2.0 * t_on;
-                if v > vs then
-                    i2 := i1 - (v - vs) * t_off / l;
-                    if i2 <= 0.0 then
-                        t2 := i1 * l / (v - vs);
-                        charge := i1 * t2 / 2.0;
-                        i2 := 0.0;
-                    else
-                        charge := (i1 + i2) / 2.0 * t_off;
-                    end if;
-                else
-                    i2 := i1;
-                    charge := i1 * t_off;
-                end if;
-                i0 := i2;
-                if pulsing then
-                    v := v + (charge - 0.3 * (1.0 - cos(math_2_pi * 100.0 * real(now / 1 ns) * 1.0e-9)) * t_period) / c;
-                else
-                    v := v + (charge - i_load * t_period) / c;
-                end if;
-                -- below the source the diodes conduct: the link at least the source's
-                if v < vs then v := vs; end if;
-                v_link <= v;
-                i_mean <= (area + charge) / t_period;
-                scaled(scaled_iac_in) <= to_fixed((area + charge) / t_period);
+                v_link <= converter.v;
+                scaled(scaled_iac_in) <= to_fixed(converter.i_mean);
                 if reversed_source then
-                    scaled(scaled_vac_in) <= to_fixed(-vs);
+                    scaled(scaled_vac_in) <= to_fixed(-converter.vs);
                 else
-                    scaled(scaled_vac_in) <= to_fixed(vs);
+                    scaled(scaled_vac_in) <= to_fixed(converter.vs);
                 end if;
             end if;
             -- the scaler's strobes: the link three times a period, the input's current and
@@ -196,6 +181,37 @@ begin
                 scaled_ready <= true; scaled_channel <= scaled_vac_in;
             elsif count = 1500 or count = 3060 then
                 scaled_ready <= true; scaled_channel <= scaled_iac_out_sampled;
+            end if;
+        end if;
+    end process;
+
+    -- every step of the core against the model's from the same inputs
+    against_the_model : process(clock)
+        variable law : boost_law_state := boost_law_zero;
+        variable settings : boost_law_settings;
+        variable expected : boost_law_state;
+        variable pending : boolean := false;
+    begin
+        if rising_edge(clock) then
+            if b_request then
+                settings := (v_ref => to_real(b_v_ref), ramp => to_real(b_ramp),
+                             d_max => 2.0 * to_real(b_d_half),
+                             kp => real(to_integer(b_kp)) / 2.0**24, ki => real(to_integer(b_ki)) / 2.0**24,
+                             alpha => real(to_integer(b_alpha)) / 2.0**24);
+                if b_reset then
+                    boost_law_reset(law, b_count > 0, to_real(b_v_sum) / real(maximum(b_count, 1)));
+                else
+                    boost_law_step(law, b_count > 0, to_real(b_v_sum) / real(maximum(b_count, 1)), settings);
+                end if;
+                expected := law;
+                pending := true;
+            end if;
+            if b_ready and pending then
+                pending := false;
+                duty_error   <= realmax(duty_error, abs(to_real(b_duty) - expected.duty));
+                target_error <= realmax(target_error, abs(to_real(b_target) - expected.target));
+                v_error      <= realmax(v_error, abs(to_real(b_v) - expected.v));
+                steps_compared <= steps_compared + 1;
             end if;
         end if;
     end process;
@@ -220,26 +236,19 @@ begin
             data := to_integer(signed(bus_read_data));
         end procedure;
 
-        -- run for a time, kicking the watchdog every 100 ms; the voltage's and current's extremes
-        procedure run_for(t : time; v_low, v_high, i_high : inout real) is
-            constant until_time : time := now + t;
-            variable next_kick : time := now;
+        -- the core's steps so far as the model's
+        procedure check_steps(least : natural) is
         begin
-            while now < until_time loop
-                if now >= next_kick then
-                    bus_write(base + 9, to_signed(1, 32));
-                    next_kick := now + 100 ms;
-                end if;
-                wait for 25 us;
-                v_low  := realmin(v_low, v_link);
-                v_high := realmax(v_high, v_link);
-                i_high := realmax(i_high, i_mean);
-            end loop;
+            info(integer'image(steps_compared) & " steps as the model's: the duty within " &
+                 real'image(duty_error) & ", the reference " & real'image(target_error) & " V, the link's mean " &
+                 real'image(v_error) & " V");
+            check(steps_compared >= least, "the core stepped");
+            check(duty_error < 1.0e-5, "the duty as the model's");
+            check(target_error < 1.0e-4, "the reference as the model's");
+            check(v_error < 1.0e-4, "the link's mean as the model's");
         end procedure;
 
-        variable v_low, v_high, i_high : real;
         variable status : integer;
-        variable duty_low, duty_high, duty : real;
     begin
         test_runner_setup(runner, runner_cfg);
         wait for 100 ns;
@@ -247,79 +256,47 @@ begin
         bus_write(1160, to_signed(1, 32));
 
         while test_suite loop
-            if run("holds_the_link") then
-                -- 94.6 V to 105 V: the duty within 0.05 (156 clocks), only leg 2's low side
+            if run("the_rtl_steps_as_the_model") then
+                -- the start without the prefilter, a fast ramp (10 V/ms) charging the link faster
+                -- than the duty's limit allows (0.05: the anti-windup); then the prefilter as by
+                -- default and the reference stepped from 105 V to 108 V; every step checked
+                bus_write(base + 19, to_signed(2**24, 32));
+                bus_write(base + 16, to_fixed(10.0));
                 bus_write(base, to_signed(1, 32));
-                v_low := 200.0; v_high := 0.0; i_high := 0.0;
-                run_for(800 ms, v_low, v_high, i_high);
-                info("after 800 ms (the prefilter: the start ~0.5 s): the link " & real'image(v_link) & " V, the input current " &
-                     real'image(i_mean) & " A; its highest " & real'image(i_high) & " A, the link's " &
-                     real'image(v_high) & " V; the widest pulse " & integer'image(widest) & " clocks");
-                check(abs(v_link - 105.0) < 0.3, "the link at 105 V");
-                check(v_high < 106.0, "overshoot under 1 V");
+                wait for 8 ms;
+                -- written after a step's result: the core takes its inputs some clocks after the
+                -- request (the observer first), a write between would be taken a period earlier
+                -- than the model's, which takes them at the request
+                wait until rising_edge(clock) and b_ready;
+                bus_write(base + 19, to_signed(integer(1.16e-5 / 0.022 * 2.0**24), 32));
+                bus_write(base + 1, to_fixed(108.0));
+                wait for 7 ms;
+                check_steps(550);
                 check(widest <= 157, "the duty within 0.05 (156 clocks)");
+                check(widest >= 150, "and at it on the way");
                 check_equal(other_on, 0, "only leg 2's low side switched");
-                -- a load step: 0.5 A
-                i_load <= 0.5;
-                v_low := 200.0; v_high := 0.0; i_high := 0.0;
-                run_for(300 ms, v_low, v_high, i_high);
-                info("the 0.5 A load: the link down to " & real'image(v_low) & " V, after 300 ms " &
-                     real'image(v_link) & " V, the input current " & real'image(i_mean) & " A");
-                check(v_low > 100.0, "the dip within 5 V");
-                v_low := 200.0; v_high := 0.0;
-                run_for(300 ms, v_low, v_high, i_high);
-                check(abs(v_link - 105.0) < 0.3, "back at 105 V with the load");
-                check(v_low > 104.5, "and steady");
-                check(i_mean > 0.5, "the input current carrying the load");
-                -- the registers: the reference reached, the link's mean, the duty
+                -- the registers as the core's results
                 bus_read(base + 11, status);
-                check(abs(real(status) / 2.0**20 - 105.0) < 0.01, "the reference ramped to 105 V");
-                bus_read(base + 17, status);
-                check(abs(real(status) / 2.0**20 - v_link) < 0.1, "the link's mean as the plant's");
+                check(abs(real(status) / 2.0**20 - to_real(b_target)) < 1.0e-5, "the reference as ramped");
                 bus_read(base + 12, status);
-                info("the duty with the 0.5 A load " & real'image(real(status) / 2.0**20));
-                check(real(status) / 2.0**20 > 0.01 and real(status) / 2.0**20 < 0.05, "the duty in its range");
+                check(abs(real(status) / 2.0**20 - to_real(b_duty)) < 1.0e-5, "the duty");
+                bus_read(base + 17, status);
+                check(abs(real(status) / 2.0**20 - to_real(b_v)) < 1.0e-5, "the link's mean");
                 bus_write(base, to_signed(2, 32));
                 wait for 50 us;
                 check(not running and leg2 = dhb_leg_gates_off, "stopped");
                 bus_read(base, status);
                 check_equal(status, 0, "stopped by stop, nothing else");
 
-            elsif run("a_load_pulsing_at_100_hz") then
-                -- an AC output's power: 0.3 * (1 - cos(2 pi 100 Hz t)) A, 0 .. 0.6 A
-                bus_write(base, to_signed(1, 32));
-                v_low := 200.0; v_high := 0.0; i_high := 0.0;
-                run_for(300 ms, v_low, v_high, i_high);
-                pulsing <= true;
-                run_for(500 ms, v_low, v_high, i_high);
-                v_low := 200.0; v_high := 0.0; duty_low := 1.0; duty_high := -1.0;
-                for k in 1 to 400 loop      -- 100 ms
-                    bus_write(base + 9, to_signed(1, 32));
-                    wait for 250 us;
-                    v_low    := realmin(v_low, v_link);
-                    v_high   := realmax(v_high, v_link);
-                    duty     := real(to_integer(b_duty)) / 2.0**20;
-                    duty_low := realmin(duty_low, duty);
-                    duty_high := realmax(duty_high, duty);
-                end loop;
-                info("the 100 Hz load: the link " & real'image(v_low) & " .. " & real'image(v_high) &
-                     " V, the duty " & real'image(duty_low) & " .. " & real'image(duty_high));
-                check(abs((v_low + v_high) / 2.0 - 105.0) < 0.5, "the link about 105 V");
-                check(v_high - v_low < 2.0, "its ripple under 2 V");
-                check(duty_high < 0.05, "the duty under its limit");
-
             elsif run("a_reversed_input") then
                 -- the source's leads the other way round: its voltage read negative, so leg 1's
                 -- low side switches and nothing else
                 reversed_source <= true;
                 wait for 100 us;
+                bus_write(base + 16, to_fixed(10.0));
                 bus_write(base, to_signed(1, 32));
-                v_low := 200.0; v_high := 0.0; i_high := 0.0;
-                run_for(800 ms, v_low, v_high, i_high);
-                info("reversed, after 800 ms: the link " & real'image(v_link) & " V, its highest " &
-                     real'image(v_high) & " V; the widest pulse " & integer'image(widest) & " clocks");
-                check(abs(v_link - 105.0) < 0.3, "the link at 105 V");
-                check(v_high < 106.0, "overshoot under 1 V");
+                wait for 5 ms;
+                check_steps(190);
                 check(widest > 0, "leg 1's low side switched");
                 check_equal(other_on, 0, "only leg 1's low side switched");
                 bus_read(base, status);
@@ -330,47 +307,6 @@ begin
                 bus_read(base, status);
                 check_equal(status, 16#20#, "stopped by stop, leg 1 noted");
 
-            elsif run("noisy_readings") then
-                -- +-1 V on each reading (0.58 V rms; the board's 0.1 V rms, 2026-10-13): the
-                -- period's mean and the loop average it out. (+-3 V swings the duty by kp's 0.022
-                -- a volt of the period's mean about the model's 0.03 here: clipped at 0 a period
-                -- in ten, the integral held there, the link 0.4 V high.)
-                noisy <= true;
-                i_load <= 0.3;
-                bus_write(base, to_signed(1, 32));
-                v_low := 200.0; v_high := 0.0; i_high := 0.0;
-                run_for(800 ms, v_low, v_high, i_high);
-                v_low := 200.0; v_high := 0.0;
-                run_for(200 ms, v_low, v_high, i_high);
-                info("noisy readings: the link " & real'image(v_low) & " .. " & real'image(v_high) & " V");
-                check(v_low > 104.5 and v_high < 105.5, "the link within 0.5 V of 105 V");
-
-            elsif run("a_reference_step_without_the_prefilter_overshoots")
-                  or run("a_reference_step_with_the_prefilter") then
-                -- the board's loop: its gain a third of the model's, so kp and ki a third of the
-                -- defaults here (the prefilter's alpha, ki / kp, the default's); 105 V, then 112 V
-                bus_write(base + 2, to_signed(integer(0.022 / 3.0 * 2.0**24), 32));
-                bus_write(base + 3, to_signed(integer(1.16e-5 / 3.0 * 2.0**24), 32));
-                if running_test_case = "a_reference_step_without_the_prefilter_overshoots" then
-                    bus_write(base + 19, to_signed(2**24, 32));     -- 1.0: none
-                end if;
-                bus_write(base, to_signed(1, 32));
-                v_low := 200.0; v_high := 0.0; i_high := 0.0;
-                run_for(800 ms, v_low, v_high, i_high);
-                info("the start: the link's highest " & real'image(v_high) & " V, now " & real'image(v_link) & " V");
-                bus_write(base + 1, to_fixed(112.0));
-                v_low := 200.0; v_high := 0.0;
-                run_for(1500 ms, v_low, v_high, i_high);
-                info("105 V -> 112 V: the link's highest " & real'image(v_high) & " V, after 1.5 s " &
-                     real'image(v_link) & " V");
-                if running_test_case = "a_reference_step_without_the_prefilter_overshoots" then
-                    -- at a third of the defaults 0.47 V over (the prefilter's 0.02 V)
-                    check(v_high > 112.3, "without the prefilter the step overshoots (the test sees it)");
-                else
-                    check(v_high < 112.2, "with the prefilter no overshoot (within 0.2 V)");
-                    check(abs(v_link - 112.0) < 0.2, "at 112 V");
-                end if;
-
             elsif run("the_duty_at_most_0_2") then
                 -- d_max written 0.5, the reference out of reach: the duty at its ceiling, 0.2
                 bus_write(base + 7, to_fixed(0.5));
@@ -378,22 +314,24 @@ begin
                 bus_write(base + 8, to_fixed(300.0));
                 bus_write(base + 16, to_fixed(0.0));
                 bus_write(base + 19, to_signed(2**24, 32));     -- no prefilter: at once
-                i_load <= 3.0;
                 bus_write(base, to_signed(1, 32));
-                v_low := 200.0; v_high := 0.0; i_high := 0.0;
-                run_for(100 ms, v_low, v_high, i_high);
+                wait for 2 ms;
                 info("d_max 0.5 written: the widest pulse " & integer'image(widest) & " clocks");
                 check(widest <= 625, "the duty at most 0.2 (625 clocks)");
                 check(widest >= 600, "and at it");
+                check_steps(70);
 
             elsif run("the_overvoltage_stop") then
-                -- the readings' noise (+-3 V) over the stop now and then: no stop
+                -- the link at 105 V, its readings' noise (+-3 V) over the 107 V stop now and then
+                -- (a reading in six): no stop
+                v_start <= 105.0;
+                restart <= true;
+                wait until rising_edge(clock);
+                restart <= false;
                 noisy <= true;
-                noise <= 3.0;
                 bus_write(base + 8, to_fixed(107.0));
                 bus_write(base, to_signed(1, 32));
-                v_low := 200.0; v_high := 0.0; i_high := 0.0;
-                run_for(150 ms, v_low, v_high, i_high);
+                wait for 10 ms;
                 check(running, "single readings over the stop do not stop it");
                 bus_write(base + 8, to_fixed(98.0));
                 wait for 200 us;
@@ -434,13 +372,29 @@ begin
                 wait for 100 ns;
                 check(not running, "no start while inhibited");
                 inhibit <= false;
+
+            elsif run("the_registers_defaults") then
+                bus_read(base + 1, status);
+                check_equal(status, integer(105.0 * 2.0**20), "v_ref 105 V");
+                bus_read(base + 2, status);
+                check_equal(status, integer(0.022 * 2.0**24), "kp 0.022");
+                bus_read(base + 3, status);
+                check_equal(status, integer(1.16e-5 * 2.0**24), "ki 1.16e-5");
+                bus_read(base + 19, status);
+                check_equal(status, integer(1.16e-5 / 0.022 * 2.0**24), "the prefilter at ki / kp");
+                bus_read(base + 7, status);
+                check_equal(status, integer(0.05 * 2.0**20), "d_max 0.05");
+                bus_read(base + 8, status);
+                check_equal(status, integer(140.0 * 2.0**20), "the overvoltage stop 140 V");
+                bus_read(base + 16, status);
+                check_equal(status, integer(0.5 * 2.0**20), "the ramp 0.5 V/ms");
+                bus_read(base + 10, status);
+                check_equal(status, 1000, "the watchdog 1000 ms");
             end if;
         end loop;
 
         test_runner_cleanup(runner);
         wait;
     end process;
-
-    test_runner_watchdog(runner, 10 sec);
 
 end vunit_simulation;

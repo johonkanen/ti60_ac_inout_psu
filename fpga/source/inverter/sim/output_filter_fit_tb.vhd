@@ -59,13 +59,16 @@ begin
         -- the model's parameters for deriv
         variable l, c, r, k, u0, td : real;
         variable u_before, u_after   : real;
+        -- the bridge's voltage held at u_held instead (for the step's matrices)
+        variable held : boolean := false;
+        variable u_held : real := 0.0;
 
         -- states: i1, v1, i2, v2
         impure function deriv(t : real; states : real_vector) return real_vector is
             variable retval : real_vector(0 to 3);
             variable u      : real;
         begin
-            if t < td then u := u_before; else u := u_after; end if;
+            if held then u := u_held; elsif t < td then u := u_before; else u := u_after; end if;
             retval(0) := (u - r * states(0) - states(1)) / l;
             retval(1) := (states(0) - states(2)) / c;
             retval(2) := (states(1) - r2 * states(2) - states(3)) / l2;
@@ -95,15 +98,35 @@ begin
         end procedure;
 
         -- the model over the window: the scaled squared error summed, the model into
-        -- v_model/i_model when keep
+        -- v_model/i_model when keep. The filter is linear and the bridge's voltage constant over a
+        -- sample but where td falls: an rk4 step of a sample is the same linear map each time,
+        -- state := ad * state + bd * u, its matrices taken once from rk4 itself (the steps of
+        -- the unit states, and of the unit input from zero); the step across td by rk4 directly
         variable v_model, i_model : real_array(0 to max_rows-1);
+        type matrix4 is array (0 to 3) of real_vector(0 to 3);
         impure function cost(p : par_vector; keep : boolean := false) return real is
-            variable state : real_vector(0 to 3);
-            variable t, e  : real := 0.0;
+            variable state, column, next_state : real_vector(0 to 3);
+            variable ad : matrix4;
+            variable bd : real_vector(0 to 3);
+            variable t, e, u : real := 0.0;
         begin
             set_parameters(p);
             evaluations := evaluations + 1;
             if l <= 0.0 or c <= 0.0 then return 1.0e30; end if;
+            held := true;
+            u_held := 0.0;
+            for j in 0 to 3 loop
+                column := (others => 0.0);
+                column(j) := 1.0;
+                rk4(0.0, column, dt);
+                for i in 0 to 3 loop
+                    ad(i)(j) := column(i);
+                end loop;
+            end loop;
+            u_held := 1.0;
+            bd := (others => 0.0);
+            rk4(0.0, bd, dt);
+            held := false;
             -- the current shared by the capacitors as at a slow change, C2 at C1's voltage
             state := (i_meas(0), v_meas(0), i_meas(0) * c2 / (c + c2), v_meas(0));
             t := t_data(0);
@@ -113,7 +136,16 @@ begin
                     i_model(n) := state(0);
                 end if;
                 e := e + ((state(1) - v_meas(n)) / v_scale)**2 + ((state(0) - i_meas(n)) / i_scale)**2;
-                rk4(t, state, dt);
+                if t < td and t + dt > td then
+                    rk4(t, state, dt);
+                else
+                    if t < td then u := u_before; else u := u_after; end if;
+                    for i in 0 to 3 loop
+                        next_state(i) := ad(i)(0) * state(0) + ad(i)(1) * state(1) + ad(i)(2) * state(2) +
+                                         ad(i)(3) * state(3) + bd(i) * u;
+                    end loop;
+                    state := next_state;
+                end if;
                 t := t + dt;
             end loop;
             return e / real(rows);

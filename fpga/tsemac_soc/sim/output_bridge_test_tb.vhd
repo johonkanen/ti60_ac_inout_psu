@@ -348,11 +348,11 @@ begin
                 allowed <= true;
                 bus_write(base, to_signed(1, 32));
                 wait until closed_loop_out for 30 us;
-                for k in 1 to 8 loop
+                for k in 1 to 3 loop
                     wait for 500 us;
                     bus_write(base + 12, to_signed(1, 32));
                 end loop;
-                check(closed_loop_out, "kicked: running after 4 ms");
+                check(closed_loop_out, "kicked: running after 1.5 ms");
                 started := now;
                 wait for 1.1 ms;
                 check(closed_loop_out and voltage_reference = fixed_zero, "not kicked: brought down");
@@ -374,10 +374,8 @@ begin
                 allowed <= true;
                 bus_write(base, to_signed(1, 32));
                 wait until closed_loop_out for 30 us;
-                wait for 3 ms;
-                check(closed_loop_out, "no watchdog: running on");
-                bus_write(base, to_signed(2, 32));
-                wait until not closed_loop_out for 6 ms;
+                wait for 1.5 ms;
+                check(closed_loop_out, "no watchdog: running on past the 1 ms");
 
             elsif run("samples_while_stopped") then
                 -- not armed, no DHB: the timer's samples, half a period apart

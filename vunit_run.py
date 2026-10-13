@@ -83,6 +83,13 @@ lib.add_source_files(root / "tsemac_soc" / "ethernet" / "*.vhd")
 lib.add_source_files(root / "tsemac_soc" / "ethernet" / "sim" / "*.vhd")
 lib.add_source_files(root / "tsemac_soc" / "scope" / "sim" / "*.vhd")
 
+# the burst's limit at 1000 periods, not the design's 75000 (500 ms): seen in 6.7 ms
+lib.test_bench("dhb_test_tb").test("a_short_burst_and_limits").set_generic("max_periods", 1000)
+
+# the LCD's tests of several screens on a screen of 96 rows, each 2.2 M clocks (the panel's 320: 7.4 M)
+for test in ("draws_written_text_in_its_colours", "a_draw_asked_for_during_a_draw_follows_it"):
+    lib.test_bench("lcd_display_tb").test(test).set_generic("height", 96)
+
 tester_tb = lib.test_bench("hyperram_tester_tb")
 pattern_test = tester_tb.test("pattern_test")
 pattern_test.add_config(name="no_fault", generics=dict(stuck_dq_bit=-1))

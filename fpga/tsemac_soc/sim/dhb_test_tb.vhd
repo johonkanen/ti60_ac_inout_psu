@@ -11,13 +11,14 @@ context vunit_lib.vunit_context;
     use work.dhb_modulator_pkg.all;
 
 -- dhb_test through its registers: the default burst (20 ms of 200 ns pulses at 150 kHz on the
--- primary alone), a shorter one, the pulse width limit, stop in the middle of a burst, and the
--- ramp: 50 ms of the 500 ms one from 200 ns pulses towards nominal, and its speed limit; and a
+-- primary alone), a shorter one, the pulse width limit, the burst's limit (max_periods: 1000 in
+-- a_short_burst_and_limits, 6.7 ms; the design's 75000, 500 ms), stop in the middle of a burst,
+-- and the ramp: 1240 periods of it from 200 ns pulses towards nominal, and its speed limit; and a
 -- burst that ends when the secondary DC link (a simple model) is at the primary's voltage; and
 -- with a run time, the bridge running after the precharge on the given phase, both legs, the
 -- secondary inverted too; held on past its run time while hold is high.
 entity dhb_test_tb is
-  generic (runner_cfg : string);
+  generic (runner_cfg : string; max_periods : natural := 75000);
 end;
 
 architecture vunit_simulation of dhb_test_tb is
@@ -62,7 +63,7 @@ begin
     dhb_clock <= not dhb_clock after 2.5 ns;
 
     dut : entity work.dhb_test
-    generic map(g_base_address => base)
+    generic map(g_base_address => base, g_max_periods => max_periods)
     port map(clock, bus_in, bus_out, probe, phase, trip, bridge_running, primary_voltage, secondary_voltage, dhb_clock,
              primary_gates, secondary_gates, hold);
 
@@ -181,29 +182,32 @@ begin
                 wait until probe(0) = '0' for 1 ms;
                 check_equal(high_pulses, 30, "30 pulses");
                 check_equal(widest, 100, "the pulse width limited to 100 clocks");
-                bus_write(base + 1, 100000);      -- past the 75000 period limit
+                bus_write(base + 1, 100000);      -- past the limit: max_periods (1000 here)
                 bus_write(base + 2, 40);
                 bus_write(base, 1);
                 wait until probe(0) = '1' for 2 us;
                 started := now;
-                wait until probe(0) = '0' for 700 ms;
-                check(now - started > 499 ms and now - started < 501 ms, "the burst limited to 75000 periods (500 ms)");
+                wait until probe(0) = '0' for 20 ms;
+                info("the burst limited: " & time'image(now - started) & ", " & integer'image(high_pulses - 30) & " pulses");
+                check(abs(real((now - started) / 1 ns) - real(max_periods) * 1333.0 * 5.0) < 2000.0,
+                      "the burst limited to max_periods");
+                check_equal(high_pulses - 30, max_periods, "max_periods pulses");
 
-            elsif run("a_50_ms_ramp") then
+            elsif run("a_ramp") then
                 -- a clock of dead time less every 124 periods: 606 clocks, start to nominal,
-                -- in 500 ms; 7500 periods of it widen the 40 clock pulses by 60
-                bus_write(base + 1, 7500);
+                -- in 500 ms; 1240 periods of it (8.3 ms) widen the 40 clock pulses by 10
+                bus_write(base + 1, 1240);
                 bus_write(base + 4, 124);
                 bus_write(base, 1);
                 wait until probe(0) = '1' for 2 us;
                 started := now;
-                wait until probe(0) = '0' for 100 ms;
+                wait until probe(0) = '0' for 20 ms;
                 info("burst of " & time'image(now - started) & ", " & integer'image(high_pulses) &
                      " pulses widening from " & integer'image(first_width) & " to " & integer'image(widest) & " clocks");
-                check(now - started > 49.9 ms and now - started < 50.1 ms, "50 ms");
-                check_equal(high_pulses, 7500, "a pulse a period");
+                check(abs(real((now - started) / 1 ns) - 1240.0 * 1333.0 * 5.0) < 2000.0, "1240 periods");
+                check_equal(high_pulses, 1240, "a pulse a period");
                 check_equal(first_width, 40, "from 200 ns");
-                check_equal(widest, 40 + 7500 / 124, "a clock wider every 124 periods");
+                check_equal(widest, 40 + 1240 / 124, "a clock wider every 124 periods");
                 check_equal(narrower, 0, "never narrower");
                 check_equal(both_on, 0, "clocks with both switches on");
 

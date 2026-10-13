@@ -50,7 +50,10 @@ library ieee;
 --   8  R  carrier periods run in the last burst (the held ones too)
 entity dhb_test is
     generic(
-        g_base_address : natural := 780
+        g_base_address : natural := 780;
+        -- the longest burst and run time, carrier periods (a testbench's shorter, to see it in
+        -- milliseconds)
+        g_max_periods  : natural := 75000
     );
     port(
         clock         : in std_logic;
@@ -85,7 +88,7 @@ end entity dhb_test;
 architecture rtl of dhb_test is
 
     constant max_pulse     : natural := 100;
-    constant max_periods   : natural := 75000;   -- 500 ms: the whole 500 ms ramp
+    constant max_periods   : natural := g_max_periods;   -- 75000, 500 ms: the whole 500 ms ramp
     constant period_counts : natural := 1333;
 
     function to_slv(n : natural) return std_logic_vector is

@@ -43,7 +43,8 @@ entity lcd_display is
         g_base_address : natural := 1300;
         g_half_period  : natural := 5;          -- SCK's half period, clocks
         g_clocks_a_ms  : natural := 125000;
-        g_scale        : natural := 2
+        g_scale        : natural := 2;
+        g_height       : natural := 320         -- the screen's rows of pixels (a testbench's fewer)
     );
     port(
         clock    : in std_logic;
@@ -61,7 +62,7 @@ end entity lcd_display;
 architecture rtl of lcd_display is
 
     constant width  : natural := 480;
-    constant height : natural := 320;
+    constant height : natural := g_height;
     constant cols   : natural := width / (lcd_font_width * g_scale);
     constant rows   : natural := height / (lcd_font_height * g_scale);
 

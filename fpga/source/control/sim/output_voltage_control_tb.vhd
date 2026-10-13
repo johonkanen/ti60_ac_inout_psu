@@ -30,8 +30,8 @@ context vunit_lib.vunit_context;
 -- sigma-delta's filter, as the board; else its average voltage and the plant's current. The control at each period start from the observer's estimates, its
 -- bridge reference applied from the next period.
 --
---   tune_the_loops   the step's figures for a range of the loops' bandwidths and setpoint
---                    weights
+--   tune_the_loops_at_1500_hz, .._2000_hz, .._3000_hz   the step's figures for a range of the
+--                    voltage loop's bandwidths and setpoint weights, a test a current loop's
 --   the_observers_voltage_bandwidth   the chosen ones with the observer's voltage loop at
 --                    100, 30 and 10 Hz
 --   the_observers_current_bandwidth   its current loop at 3, 1.5 and 1 kHz
@@ -308,16 +308,20 @@ begin
         test_runner_setup(runner, runner_cfg);
 
         while test_suite loop
-            if run("tune_the_loops") then
+            -- the sweep a test a current loop's bandwidth (run side by side)
+            if run("tune_the_loops_at_1500_hz") or run("tune_the_loops_at_2000_hz")
+               or run("tune_the_loops_at_3000_hz") then
                 for ci in currents'range loop
-                    for vi in voltages'range loop
-                        if voltages(vi) < currents(ci) / 2.5 then
-                            for bi in weights'range loop
-                                f := run_square(currents(ci), voltages(vi), weights(bi), 3, false);
-                                show(currents(ci), voltages(vi), weights(bi), f);
-                            end loop;
-                        end if;
-                    end loop;
+                    if running_test_case = "tune_the_loops_at_" & integer'image(integer(currents(ci))) & "_hz" then
+                        for vi in voltages'range loop
+                            if voltages(vi) < currents(ci) / 2.5 then
+                                for bi in weights'range loop
+                                    f := run_square(currents(ci), voltages(vi), weights(bi), 3, false);
+                                    show(currents(ci), voltages(vi), weights(bi), f);
+                                end loop;
+                            end if;
+                        end loop;
+                    end if;
                 end loop;
 
             elsif run("the_voltage_pis_zero") then
