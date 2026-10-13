@@ -44,8 +44,9 @@ library ieee;
 -- and the other leg stay off, the current returning through the other leg's low side body diode,
 -- so no current can flow back into the source whatever the control does. (On the wrong leg, the
 -- source reversed after the start, nothing is boosted: the link charges through the diodes.)
--- The duty is limited to 0 .. d_max, d_max itself to at most 0.2 (d_max_ceiling) whatever is
--- written: at most a fifth of the period on, so a runaway cannot pump the link up fast.
+-- The duty is limited to 0 .. d_max, d_max itself to at most 0.4 (d_max_ceiling) whatever is
+-- written: at most two fifths of the period on (0.2 until 2026-10-13: 80 V from a 56 V source
+-- needs about 0.39), so a runaway cannot pump the link up without bound.
 --
 -- Once a switching period (output_bridge_pkg's, 40 kHz), at its start: the readings of the link
 -- since the period before handed to the core with a step's request (a reset's at a run's first
@@ -63,7 +64,7 @@ library ieee;
 --         watchdog, bit4 inhibit; bit5 leg 1 switching (the input reversed), else leg 2
 --   1  RW the link's voltage reference, V (105)
 --   2  RW kp, duty/V (0.022)        3 RW ki, duty/V a period (0.0000116)
---   7  RW d_max (0.05), at most 0.2 (above it 0.2 is used)
+--   7  RW d_max (0.05), at most 0.4 (above it 0.4 is used)
 --   8  RW the overvoltage stop, V (140)
 --   9  W  the watchdog's kick      10 RW its time, ms (1000); 0: none
 --   11 R  the reference as ramped, V
@@ -124,7 +125,7 @@ end entity input_boost_control;
 architecture rtl of input_boost_control is
 
     constant period      : natural := output_period_clocks;     -- 3125: 40 kHz
-    constant d_max_ceiling : fixed_number := to_fixed(0.2);
+    constant d_max_ceiling : fixed_number := to_fixed(0.4);
     constant over_in_a_row : natural := 8;
     constant periods_a_ms : natural := 125000 / period;         -- 40
 

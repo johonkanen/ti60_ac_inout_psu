@@ -21,7 +21,7 @@ package input_boost_model_pkg is
     constant boost_period_clocks : natural := 3125;     -- 40 kHz at 125 MHz
     constant boost_t_period      : real    := 25.0e-6;
     constant boost_ms_a_period   : real    := 0.025;
-    constant boost_d_max_ceiling : real    := 0.2;
+    constant boost_d_max_ceiling : real    := 0.4;
 
     type boost_law_settings is record
         v_ref : real;   -- V

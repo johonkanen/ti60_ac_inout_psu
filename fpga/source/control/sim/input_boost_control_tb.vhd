@@ -32,7 +32,7 @@ context vunit_lib.vunit_context;
 --   the_rtl_steps_as_the_model  a start ramping into the duty's limit, a reference step through
 --                               the prefilter
 --   a_reversed_input            leg 1's low side only, the status's leg bit
---   the_duty_at_most_0_2        d_max written 0.5: the duty at 0.2
+--   the_duty_at_most_0_4        d_max written 0.5: the duty at 0.4
 --   the_overvoltage_stop        +-3 V of noise, single readings over the stop: no stop; under it: stopped
 --   the_watchdog, a_trip_and_inhibit   each stops it at once
 --   the_sequencers_start_and_at_reference   start_in starts it; at_reference
@@ -310,8 +310,8 @@ begin
                 bus_read(base, status);
                 check_equal(status, 16#20#, "stopped by stop, leg 1 noted");
 
-            elsif run("the_duty_at_most_0_2") then
-                -- d_max written 0.5, the reference out of reach: the duty at its ceiling, 0.2
+            elsif run("the_duty_at_most_0_4") then
+                -- d_max written 0.5, the reference out of reach: the duty at its ceiling, 0.4
                 bus_write(base + 7, to_fixed(0.5));
                 bus_write(base + 1, to_fixed(200.0));
                 bus_write(base + 8, to_fixed(300.0));
@@ -320,8 +320,8 @@ begin
                 bus_write(base, to_signed(1, 32));
                 wait for 2 ms;
                 info("d_max 0.5 written: the widest pulse " & integer'image(widest) & " clocks");
-                check(widest <= 625, "the duty at most 0.2 (625 clocks)");
-                check(widest >= 600, "and at it");
+                check(widest <= 1250, "the duty at most 0.4 (1250 clocks)");
+                check(widest >= 1225, "and at it");
                 check_steps(70);
 
             elsif run("the_overvoltage_stop") then

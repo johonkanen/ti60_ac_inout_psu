@@ -11,7 +11,7 @@ item when it is done; the commit that does it says so.
   compensation capacitor. `input_boost_control.vhd` (registers 1260) runs a voltage PI from
   the link's period mean straight to the duty, its step a program on the output control's
   microprogram core (`output_control_program_pkg`'s boost programs); the current is only
-  shown. The duty is capped at 0.2 in the FPGA whatever d_max says; the overvoltage stop
+  shown. The duty is capped at 0.4 in the FPGA whatever d_max says (0.2 until 2026-10-13); the overvoltage stop
   needs 8 readings in a row (single readings carry the switching's noise). The reference
   goes through a two-stage prefilter at the PI's zero (alpha = ki/kp, register 19).
   On the board (2026-10-13, 60 V DC in, `input_boost_test.py --v-ref 64 --step 67 --d-max
@@ -21,7 +21,12 @@ item when it is done; the commit that does it says so.
   phase margin 93 deg (the user: about 5 Hz, so the input current has no spikes); with the
   DHB online its capacitance doubles the link's: 3.2 Hz, 74 deg. On the board with them a
   3 V step settles in 0.3 s, 0.14..0.20 V over, the input current as steady (0.82 A at most
-  in 5 ms means): now the defaults. 80 V from 60 V is out of reach at the 0.2 cap (69 V).
+  in 5 ms means): now the defaults. 80 V from 56 V was out of reach at the 0.2 cap (69 V):
+  the cap raised to 0.4 (the user's choice). The full system to 80 V (2026-10-13,
+  supply_raise_test.py, -56 V in): Start to idle at 62 V, then 66 .. 80 V in 4 V steps, the DAB
+  on: the link 62.1 / 66.1 / 70.2 / 73.8 / 78.0 / 80.1 V, the duty 0.11 / 0.17 / 0.20 / 0.25 /
+  0.26 / 0.25 (it stops rising above 74 V: not the fitted model's regime there), the input
+  current 1.1 A at most, the secondary 1..4 V behind in the steps, 80.9 V held.
   Either polarity of the source: the leg its positive terminal is on switches (leg 1 when
   the input's voltage reads negative at the start; status bit 5, scope lane bit 6). On the
   board with the leads swapped (2026-10-13, -56 V in, 60 -> 63 -> 60 V): leg 1 switched, the

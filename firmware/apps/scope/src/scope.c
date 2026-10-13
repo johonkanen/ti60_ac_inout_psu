@@ -401,7 +401,7 @@ static void apply_config(const char *message, bool with_gate_power)
 		config.boost_v_ref = CLAMP(v, 0.0, 400.0);
 	}
 	if (json_number(message, "boost_d_max", &v)) {
-		config.boost_d_max = CLAMP(v, 0.0, 0.2);
+		config.boost_d_max = CLAMP(v, 0.0, 0.4);
 	}
 	if (json_number(message, "boost_limit", &v)) {
 		config.boost_limit = CLAMP(v, 0.0, 450.0);
@@ -974,7 +974,7 @@ static void handle_command(const char *message)
 			double low, high;
 		} settings[] = {
 			{"v_ref", 1, 0.0, 400.0}, {"kp", 2, 0.0, 0.1}, {"ki", 3, 0.0, 0.001},
-			{"d_max", 7, 0.0, 0.2}, {"limit", 8, 0.0, 450.0}, {"ramp", 16, 0.0, 10.0},
+			{"d_max", 7, 0.0, 0.4}, {"limit", 8, 0.0, 450.0}, {"ramp", 16, 0.0, 10.0},
 			{"prefilter", 19, 0.0, 1.0},
 		};
 		bool gains = false, prefilter = false;

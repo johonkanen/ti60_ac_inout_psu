@@ -83,7 +83,7 @@ struct scope_config {
 	double control_prefilter_hz, control_feedforward;
 	double control_i_max, control_vl_max, control_u_max;
 	/* the input boost as the supply's start runs it (input_boost_control.vhd): the primary DC
-	 * link's reference (V), the duty's limit (at most 0.2) and the overvoltage stop (V) */
+	 * link's reference (V), the duty's limit (at most 0.4) and the overvoltage stop (V) */
 	double boost_v_ref, boost_d_max, boost_limit;
 };
 
