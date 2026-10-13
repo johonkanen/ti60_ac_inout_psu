@@ -5,28 +5,32 @@ item when it is done; the commit that does it says so.
 
 ## Input bridge (boost from a DC source)
 
-- **The boost is now a voltage control alone; it regulates on the board but slowly.** The
+- **The boost is a voltage control alone, tuned on the board to a 5 Hz crossover.** The
   current loop could not work: iac_in's period mean (about 0.1 A at 4 % duty) did not follow
   the current that charges the primary DC link, too noisy and likely missing the shunt's
-  compensation capacitor. `input_boost_control.vhd` (registers 1260) now runs a voltage PI
-  from the link's period mean straight to the duty, its step a program on the output
-  control's microprogram core (`output_control_program_pkg`'s boost programs); the current is
-  only shown. The duty is capped at 0.2 in the FPGA whatever d_max says; the overvoltage stop
-  needs 8 readings in a row (single readings carry the switching's noise).
-  On the board (2026-10-11, `input_boost_test.py --d-max 0.2 --limit 115`): 94.6 -> 105 ->
-  112 -> 105 V held within +-0.3 V (1 ms means), no trips; duty 0.066 at 105 V, 0.086 at
-  112 V, about three times the testbench's 15 uH DCM model's, so the loop's gain is a third
-  of the model's: the crossover ~1-4 Hz instead of 7-23 Hz. The start takes ~0.4 s to 105 V
-  (the reference's ramp 21 ms), the step to 112 V ~0.4 s with 1.5 V overshoot.
-  Since then the reference goes through a two-stage prefilter, both stages' corner at the
-  PI's zero (alpha = ki/kp per period, register 19, 24 fractional bits, 1.0 = none; the
-  firmware sets it from kp and ki unless given): in the testbench at a third of the gains
-  a 105 -> 112 V step overshoots 0.16 V instead of 0.80 V, the start takes ~0.5 s. Loaded
-  on the board (FPGA image 76) but not yet run. Next:
-  1. a boost run with the prefilter: the step's overshoot;
-  2. raise kp ~3x (0.015 duty/V) and ki with it, then check the start and the steps again;
-  3. the input inductance and the link's capacitance from the run's data;
-  4. a peak current cutoff on the raw sigma-delta current is still missing; the duty cap is
+  compensation capacitor. `input_boost_control.vhd` (registers 1260) runs a voltage PI from
+  the link's period mean straight to the duty, its step a program on the output control's
+  microprogram core (`output_control_program_pkg`'s boost programs); the current is only
+  shown. The duty is capped at 0.2 in the FPGA whatever d_max says; the overvoltage stop
+  needs 8 readings in a row (single readings carry the switching's noise). The reference
+  goes through a two-stage prefilter at the PI's zero (alpha = ki/kp, register 19).
+  On the board (2026-10-13, 60 V DC in, `input_boost_test.py --v-ref 64 --step 67 --d-max
+  0.2 --limit 75`): with the old gains (kp 0.005, ki 1.5e-6) no overshoot but slow, a step
+  1.4 s. A first order fit to that capture: the link 55.2 V + 62.7 V a unit of duty, 42 ms
+  (to 0.06 V rms). On it kp 0.022, ki 1.16e-5 (the PI's zero 3.3 Hz) cross over at 5 Hz,
+  phase margin 93 deg (the user: about 5 Hz, so the input current has no spikes); with the
+  DHB online its capacitance doubles the link's: 3.2 Hz, 74 deg. On the board with them a
+  3 V step settles in 0.3 s, 0.14..0.20 V over, the input current as steady (0.82 A at most
+  in 5 ms means): now the defaults. 80 V from 60 V is out of reach at the 0.2 cap (69 V).
+  Either polarity of the source: the leg its positive terminal is on switches (leg 1 when
+  the input's voltage reads negative at the start; status bit 5, scope lane bit 6). On the
+  board with the leads swapped (2026-10-13, -56 V in, 60 -> 63 -> 60 V): leg 1 switched, the
+  link held at 60.01 / 63.00 V. Its readings are noisier then (the link 0.48 V rms against
+  0.17 V, lines at 534 Hz and 1 kHz; the input's voltage 12.6 V rms against 5.5 V): leg 1's
+  switching couples into the measurements more than leg 2's; in 5 ms means 0.13 V, the
+  control unaffected. The input current reads with the same sign either way. Next:
+  1. kp and ki doubled while the DHB runs (the doubled capacitance), if 3 Hz is too slow;
+  2. a peak current cutoff on the raw sigma-delta current is still missing; the duty cap is
      the guard.
 - iac_in's sign: a 1 MS/s capture shows the boost's current pulses as positive counts (the
   firmware calibrates +256 counts/A), while the polarity test (`input_polarity_test.py`, removed

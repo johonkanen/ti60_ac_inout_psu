@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """The input bridge as a boost converter from a DC source: the primary DC link held at a reference.
     python3 input_boost_test.py [address] [--v-ref 105] [--step 112] [--d-max 0.05] [--limit 120]
-                                [--kp 0.005] [--ki 1.5e-6] [--prefilter ALPHA] [--hold 1.5] [--yes]
+                                [--kp 0.022] [--ki 1.16e-5] [--prefilter ALPHA] [--hold 1.5] [--yes]
 
-input_boost_control.vhd switches only leg 2's low side (the input's positive terminal), so no
-current can flow back into the source. Its voltage PI (on the output control's microprogram core)
+input_boost_control.vhd switches only the low side of the leg the input's positive terminal is on
+(leg 2, or leg 1 with the source's leads the other way round: the input's voltage reads negative),
+so no current can flow back into the source. Its voltage PI (on the output control's microprogram core)
 sets the duty straight from the link's period mean, within d_max, its crossover some Hz; the
 input current is not controlled (its measurement too noisy), only shown. The reference goes
 through a two stage prefilter first, by default at the PI's zero (alpha = ki / kp a period, the
@@ -21,6 +22,7 @@ unless --yes, and puts the scope's settings and the gate supplies back after.
 """
 import argparse
 import json
+import math
 import struct
 import sys
 import time
@@ -65,7 +67,8 @@ def watch(board, seconds, log):
             log.append(state)
             print(f'  link {state["v_mean"]:6.1f} V (ref {state["target"]:5.1f} -> {state["v_ref"]:5.1f}), '
                   f'input {state["v_ac"]:5.1f} V {state["i_in"]:+5.2f} A, duty {state["duty"]:.4f}, '
-                  f'status {state["status"]}', flush=True)
+                  f'status {state["status"]}{" (leg 1: the input reversed)" if int(state["status"]) & 32 else ""}',
+                  flush=True)
             if not state['status'] & 1:
                 return False
     return True
@@ -77,8 +80,8 @@ def main():
     parser.add_argument('--v-ref', type=float, default=105.0)
     parser.add_argument('--step', type=float, default=112.0, help='the reference stepped to, V')
     parser.add_argument('--d-max', type=float, default=0.05, help="the duty's limit")
-    parser.add_argument('--kp', type=float, default=0.005, help='the PI, duty/V')
-    parser.add_argument('--ki', type=float, default=1.5e-6, help='the PI, duty/V a period (25 us)')
+    parser.add_argument('--kp', type=float, default=0.022, help='the PI, duty/V')
+    parser.add_argument('--ki', type=float, default=1.16e-5, help='the PI, duty/V a period (25 us)')
     parser.add_argument('--prefilter', type=float, help="each prefilter stage's share of a period's "
                         'difference (default ki / kp; 1.0 none)')
     parser.add_argument('--limit', type=float, default=120.0, help='the overvoltage stop, V')
@@ -115,8 +118,10 @@ def main():
         sys.exit('the gate driver supplies did not come on')
     board.send({'type': 'dhb_clear_trip'})
     board.poll()
-    # 10 kS/s, 32768 samples: 3.3 s from just before the start (the input test's lanes nonzero)
-    capture = {'divider': 12499, 'length': 32768, 'pre_percent': 2, 'mode': 'normal', 'trigger_channel': 3,
+    # 32768 samples from just before the start (the input test's lanes nonzero) over the whole run:
+    # 10 kS/s (3.3 s) for holds of up to a second, slower for longer ones
+    divider = max(12499, math.ceil(125e6 * (3 * args.hold + 0.3) / 32768) - 1)
+    capture = {'divider': divider, 'length': 32768, 'pre_percent': 2, 'mode': 'normal', 'trigger_channel': 3,
                'trigger_edge': 0, 'trigger_level': 1, 'sources': sources}
     version = board.configure(capture)
     board.captures.clear()
@@ -172,6 +177,10 @@ def main():
     iin = scaled(x[:, 2], IAC_IN)
     lanes = x[:, 3].astype(int)
     running = np.flatnonzero(lanes & 16)
+    if (lanes & 64).any():
+        # leg 1 switched, the source reversed (the input current reads with the same sign: on the
+        # board, 2026-10-13, +0.43 A reversed against +0.57 A the right way round)
+        print('the input reversed: leg 1 switched')
     if not len(running):
         print('the capture shows no run')
         return

@@ -11,8 +11,8 @@ library ieee;
     use work.scope_pkg.all;
 
 -- The input bridge as a boost converter from a DC source on the input (a lab supply, which takes
--- no current back): the primary DC link's voltage held at a reference by a voltage PI straight to
--- the duty. The input current is not controlled: its measurement is too noisy for a current loop.
+-- no current back), of either polarity: the primary DC link's voltage held at a reference by a
+-- voltage PI straight to the duty. The input current is not controlled: its measurement is too noisy for a current loop.
 --
 -- The PI runs on output_control_processor's core (output_control_program_pkg's boost programs):
 -- this entity keeps the registers, the switching period, the gate and every stop, and hands the
@@ -24,19 +24,26 @@ library ieee;
 --   q = (v_in t_on)^2 / (2 L (v_dc - v_in)),
 -- so the link's current goes with the duty's square: its gain to the duty, 2 q / d a period,
 -- grows with the load (at 94.6 V into 105 V with 15 uH: 12 A a unit of duty at 0.05 A, 38 A at
--- 0.5 A). The defaults (kp 0.005 duty/V, ki 1.5e-6 duty/V a period: the PI's zero at 2 Hz) put
--- the crossover at 7..23 Hz on 1.3 mF, well under the input filter's ~1 kHz resonance (15 uH with
--- 1.3 mF) and slow against the 100 Hz ripple an AC output's power brings. The soft start's ramp
+-- 0.5 A). On the board the link follows the duty as a first order lag (from a 60 V source, about
+-- 64 V: 55 V + 63 V a unit of duty, 42 ms; fitted to a capture, 2026-10-13). The defaults (kp
+-- 0.022 duty/V, ki 1.16e-5 duty/V a period: the PI's zero at 3.3 Hz) put its crossover at 5 Hz
+-- (phase margin 93 deg; with the DHB's capacitance on the link too, doubling it, 3.2 Hz and 74
+-- deg): no faster, so the input current has no spikes, well under the input filter's ~1 kHz
+-- resonance (15 uH with 1.3 mF) and slow against the 100 Hz ripple an AC output's power brings. On
+-- the board a 3 V step settles in 0.3 s, 0.2 V over, the input current as steady. The soft start's ramp
 -- keeps the link's current C dV/dt while it charges. The reference, as ramped, goes through a
 -- prefilter of two first order stages before the PI, each at the PI's zero (alpha = ki / kp a
 -- period): the first cancels the zero, the second damps the loop's own poles' overshoot, so a
 -- step of the reference is followed without overshoot (the model at the board's gain: 0.8 V
 -- over a 7 V step without, 0.35 V with one stage).
 --
--- Only leg 2's low side switches (the input's positive terminal is on leg 2): while it is on the
--- input inductor's current builds, when it turns off it flows on through leg 2's high side body
--- diode into the link. Leg 2's high side and leg 1 stay off, the current returning through leg
--- 1's low side body diode, so no current can flow back into the source whatever the control does.
+-- Only the low side of the leg the input's positive terminal is on switches: leg 2 when the
+-- input's voltage reads positive at the start, leg 1 when negative (the source's leads the other
+-- way round), the leg kept for the run. While it is on the input inductor's current builds, when
+-- it turns off it flows on through that leg's high side body diode into the link. Its high side
+-- and the other leg stay off, the current returning through the other leg's low side body diode,
+-- so no current can flow back into the source whatever the control does. (On the wrong leg, the
+-- source reversed after the start, nothing is boosted: the link charges through the diodes.)
 -- The duty is limited to 0 .. d_max, d_max itself to at most 0.2 (d_max_ceiling) whatever is
 -- written: at most a fifth of the period on, so a runaway cannot pump the link up fast.
 --
@@ -53,9 +60,9 @@ library ieee;
 -- register map, offsets from g_base_address; values with 20 fractional bits, the gains with 24
 --   0  W  bit0 start (when stopped), bit1 stop
 --      R  bit0 running; why the last run stopped: bit1 the overvoltage, bit2 a trip, bit3 the
---         watchdog, bit4 inhibit
+--         watchdog, bit4 inhibit; bit5 leg 1 switching (the input reversed), else leg 2
 --   1  RW the link's voltage reference, V (105)
---   2  RW kp, duty/V (0.005)        3 RW ki, duty/V a period (0.0000015)
+--   2  RW kp, duty/V (0.022)        3 RW ki, duty/V a period (0.0000116)
 --   7  RW d_max (0.05), at most 0.2 (above it 0.2 is used)
 --   8  RW the overvoltage stop, V (140)
 --   9  W  the watchdog's kick      10 RW its time, ms (1000); 0: none
@@ -68,7 +75,7 @@ library ieee;
 --   17 R  the link's period mean, V (the control's)
 --   18 R  the input's voltage, V
 --   19 RW the reference's prefilter: each stage's share of a period's difference, 24 fractional bits
---         (0.0003: ki / kp of the defaults, the PI's zero at 1.9 Hz); 1.0: none
+--         (0.000527: ki / kp of the defaults, the PI's zero at 3.3 Hz); 1.0: none
 entity input_boost_control is
     generic(
         g_base_address : natural := 1260
@@ -103,7 +110,7 @@ entity input_boost_control is
         on_half        : in fixed_number;
         target_in      : in fixed_number;
         v_mean_in      : in fixed_number;
-        -- scope lanes: 4 running, 5 the switch on
+        -- scope lanes: 4 running, 5 the switch on, 6 leg 1 switching (the input reversed)
         probe          : out scope_sample
     );
 end entity input_boost_control;
@@ -139,10 +146,10 @@ architecture rtl of input_boost_control is
     end function;
 
     signal v_ref_r    : std_logic_vector(31 downto 0) := slv(to_fixed(105.0));
-    signal kp_r       : std_logic_vector(31 downto 0) := std_logic_vector(to_signed(integer(0.005 * 2.0**24), 32));
-    signal ki_r       : std_logic_vector(31 downto 0) := std_logic_vector(to_signed(integer(0.0000015 * 2.0**24), 32));
+    signal kp_r       : std_logic_vector(31 downto 0) := std_logic_vector(to_signed(integer(0.022 * 2.0**24), 32));
+    signal ki_r       : std_logic_vector(31 downto 0) := std_logic_vector(to_signed(integer(0.0000116 * 2.0**24), 32));
     signal ramp_r     : std_logic_vector(31 downto 0) := slv(to_fixed(0.5));
-    signal alpha_r    : std_logic_vector(31 downto 0) := std_logic_vector(to_signed(integer(0.0003 * 2.0**24), 32));
+    signal alpha_r    : std_logic_vector(31 downto 0) := std_logic_vector(to_signed(integer(0.0000116 / 0.022 * 2.0**24), 32));
     signal d_max_r    : std_logic_vector(31 downto 0) := slv(to_fixed(0.05));
     signal limit_r    : std_logic_vector(31 downto 0) := slv(to_fixed(140.0));
     signal watchdog_r : std_logic_vector(31 downto 0) := to_slv(1000);
@@ -155,6 +162,7 @@ architecture rtl of input_boost_control is
     signal period_count  : natural range 0 to boost_max_readings := 0;
 
     signal running    : boolean := false;
+    signal reversed   : boolean := false;     -- the input's positive terminal on leg 1: it switches
     signal first      : boolean := false;     -- a run's first period: the core's reset
     signal why        : std_logic_vector(3 downto 0) := (others => '0');   -- 4 inhibit .. 1 overvoltage
     signal count      : natural range 0 to period - 1 := 0;
@@ -185,7 +193,7 @@ begin
         if rising_edge(clock) then
             init_bus(bus_out);
             connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 0,
-                (31 downto 5 => '0') & why & bit_of(running));
+                (31 downto 6 => '0') & bit_of(reversed) & why & bit_of(running));
             connect_data_to_address(bus_in, bus_out, g_base_address + 1, v_ref_r);
             connect_data_to_address(bus_in, bus_out, g_base_address + 2, kp_r);
             connect_data_to_address(bus_in, bus_out, g_base_address + 3, ki_r);
@@ -294,6 +302,7 @@ begin
                   and not running and not trip and not inhibit then
                 running   <= true;
                 first     <= true;
+                reversed  <= v_ac < 0;
                 why       <= (others => '0');
                 periods   <= (others => '0');
                 on_clocks <= 0;
@@ -303,14 +312,18 @@ begin
                 next_on <= 0;
             end if;
 
-            -- only leg 2's low side ever switches
+            -- only the low side of the input's positive terminal's leg ever switches
             leg1 <= dhb_leg_gates_off;
             leg2 <= dhb_leg_gates_off;
             if gate_on and running and not stop_now and not trip then
-                leg2.low <= '1';
+                if reversed then
+                    leg1.low <= '1';
+                else
+                    leg2.low <= '1';
+                end if;
             end if;
 
-            probe <= x"00" & "00" & bit_of(gate_on and running) & bit_of(running) & x"0";
+            probe <= x"00" & '0' & bit_of(reversed) & bit_of(gate_on and running) & bit_of(running) & x"0";
         end if;
     end process;
 

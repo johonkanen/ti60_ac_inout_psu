@@ -719,7 +719,7 @@ void capture_boost_kick(void)
 
 void capture_boost_state(uint32_t state[2])
 {
-	state[0] = sys_read32(BOOST_REGISTER(0)) & 31;
+	state[0] = sys_read32(BOOST_REGISTER(0)) & 63; /* bit5: leg 1 (the input reversed) */
 	state[1] = sys_read32(BOOST_REGISTER(15));
 }
 
