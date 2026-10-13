@@ -1139,6 +1139,9 @@ function connect() {
       showSummary();
       showBoard();
       draw();
+    } else if (message.type === 'config') {
+      // the board's settings after any client changed them
+      config = message.config;
     } else if (message.type === 'status') {
       Banner.status(message);
       if (message.waveform) {

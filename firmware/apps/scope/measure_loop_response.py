@@ -40,7 +40,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 class Board:
-    """the board's /ws: JSON commands; its hello, statuses and captures as they come"""
+    """the board's /ws: JSON commands; its hello, settings, statuses and captures as they come"""
 
     def __init__(self, host):
         self.sock = socket.create_connection((host, 80), timeout=5)
@@ -55,6 +55,8 @@ class Board:
         assert b' 101 ' in status.split(b'\r\n')[0], status
         self.sock.settimeout(0.2)
         self.hello, self.status, self.captures = None, {}, []
+        # the board's settings and their version: the hello's, then each change's (any client's)
+        self.config, self.config_version = None, None
 
     def send(self, message):
         data = json.dumps(message).encode()
@@ -94,17 +96,38 @@ class Board:
                 message = json.loads(data)
                 if message['type'] == 'hello':
                     self.hello = message
+                    self.config, self.config_version = message['config'], message.get('config_version')
+                elif message['type'] == 'config':
+                    self.config, self.config_version = message['config'], message['version']
                 elif message['type'] == 'status':
                     self.status = message
             elif opcode == 2:
                 self.captures.append(data)
 
     def poll(self, seconds=0.4):
-        """a status asked for; the board's watchdog sees someone is there"""
+        """a status asked for (settings that change nothing: the capture under way goes on); the
+        board's watchdog sees someone is there"""
         self.send({'type': 'heartbeat'})
         self.send({'type': 'config', 'config': {}})
         self.pump(seconds)
         return self.status
+
+    def configure(self, settings, seconds=2.0):
+        """settings sent, their version when the board has them (None if they changed nothing)"""
+        before = self.config_version
+        self.send({'type': 'config', 'config': settings})
+        end = time.monotonic() + seconds
+        while time.monotonic() < end and self.config_version == before:
+            self.pump(0.1)
+        return self.config_version if self.config_version != before else None
+
+    def wait_armed(self, version, seconds=3.0):
+        """until the scope has armed with the settings of that version (or later ones)"""
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if self.poll(0.1).get('armed_version', -1) >= version:
+                return True
+        return False
 
 
 def prefilter(hz, prefilter_hz):

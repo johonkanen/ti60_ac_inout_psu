@@ -124,6 +124,7 @@ static struct {
 
 static struct {
 	uint32_t config_version; /* bumped on every config command */
+	uint32_t armed_version;  /* the config_version the scope last armed with */
 	bool running;
 	bool single;
 	bool force;
@@ -532,7 +533,8 @@ static void send_hello(int sock)
 	int n;
 
 	k_mutex_lock(&scope_lock, K_FOREVER);
-	n = snprintf(message, sizeof(message), "{\"type\":\"hello\",\"config\":");
+	n = snprintf(message, sizeof(message), "{\"type\":\"hello\",\"config_version\":%u,\"config\":",
+		     status.config_version);
 	n += print_config(message + n, sizeof(message) - n);
 	k_mutex_unlock(&scope_lock);
 	n += snprintf(message + n, sizeof(message) - n, ",\"source_names\":[");
@@ -548,6 +550,27 @@ static void send_hello(int sock)
 	}
 	snprintf(message + n, sizeof(message) - n, "}");
 	send_text(sock, message);
+}
+
+/* the settings to every client after a config command: the pages show what the board runs,
+ * whoever changed it, and a script learns its settings' version (armed_version in the status
+ * says when the scope armed with them) */
+static void broadcast_config(void)
+{
+	static char message[2048];
+	int n;
+
+	k_mutex_lock(&scope_lock, K_FOREVER);
+	n = snprintf(message, sizeof(message), "{\"type\":\"config\",\"version\":%u,\"config\":",
+		     status.config_version);
+	n += print_config(message + n, sizeof(message) - n);
+	k_mutex_unlock(&scope_lock);
+	snprintf(message + n, sizeof(message) - n, "}");
+	for (int i = 0; i < MAX_CLIENTS; i++) {
+		if (clients[i].sock >= 0) {
+			send_text(clients[i].sock, message);
+		}
+	}
 }
 
 /*
@@ -713,7 +736,8 @@ static void broadcast_status(void)
 		 "\"control\":[%.3f,%.2f,%.2f,%.2f,%u,%u],\"waveform\":[%u,%u],"
 		 "\"boost\":[%u,%.3f,%.4f,%.3f,%.3f,%.3f,%.3f,%.2f,%u],"
 		 "\"touch\":[%u,%u,%u,%u,%d,%d,%u,%u],"
-		 "\"supply\":\"%s\",\"gate_power\":%u,\"sequencer\":%u,\"stream_end\":\"%s\"}",
+		 "\"supply\":\"%s\",\"gate_power\":%u,\"sequencer\":%u,\"stream_end\":\"%s\","
+		 "\"armed_version\":%u}",
 		 status.state, status.captures, status.forced ? "true" : "false",
 		 status.running ? "true" : "false", stream_lost(), adc.rates[0], adc.rates[1],
 		 adc.sdm_rate, capture_gate_power_on(), copy_us, send_us, capture_dhb_status(),
@@ -731,7 +755,7 @@ static void broadcast_status(void)
 		 capture_boost_value(6), boost_state[1], touch_state[0], touch_state[1],
 		 touch_state[2], touch_state[3], touch_x, touch_y, panel_calibrating(),
 		 capture_touch_presses(), supply_state(), config.gate_power,
-		 capture_sequencer_state(), stream_end());
+		 capture_sequencer_state(), stream_end(), status.armed_version);
 	k_mutex_unlock(&scope_lock);
 
 	for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -831,15 +855,25 @@ K_TIMER_DEFINE(watchdog_timer, watchdog_kick, NULL);
 
 static void handle_command(const char *message)
 {
+	bool configured = false;
+
 	last_client_message = k_uptime_get();
 	if (json_string_is(message, "type", "heartbeat")) {
 		return; /* a page still there: no more than that */
 	}
 	k_mutex_lock(&scope_lock, K_FOREVER);
 	if (json_string_is(message, "type", "config")) {
+		struct scope_config before;
+
+		/* settings that change nothing (a script's poll for a status sends {}) are no new
+		 * settings: the capture under way goes on */
+		memcpy(&before, &config, sizeof(config));
 		apply_config(message, true);
-		status.config_version++;
-		k_work_reschedule(&save_work, K_SECONDS(2));
+		if (memcmp(&before, &config, sizeof(config)) != 0) {
+			status.config_version++;
+			configured = true;
+			k_work_reschedule(&save_work, K_SECONDS(2));
+		}
 	} else if (json_string_is(message, "type", "run")) {
 		status.running = true;
 		status.single = false;
@@ -969,6 +1003,9 @@ static void handle_command(const char *message)
 		capture_dhb_stop();
 	}
 	k_mutex_unlock(&scope_lock);
+	if (configured) {
+		broadcast_config();
+	}
 	broadcast_status();
 }
 
@@ -1155,6 +1192,22 @@ void scope_get_config(struct scope_config *c)
 	k_mutex_unlock(&scope_lock);
 }
 
+/* the acquisition's waits, in slices of this: new settings, a stop or a force take effect
+ * within one, however long the record */
+#define WAIT_SLICE_MS 10
+
+/* sleeps up to ms, back early when the settings change, the scope stops or a force comes */
+static void wait_unless_changed(int64_t ms, uint32_t version)
+{
+	int64_t until = k_uptime_get() + ms;
+	int64_t left;
+
+	while ((left = until - k_uptime_get()) > 0 && status.config_version == version &&
+	       status.running && !status.force) {
+		k_msleep((int32_t)MIN(left, WAIT_SLICE_MS));
+	}
+}
+
 static void scope_thread(void *p1, void *p2, void *p3)
 {
 	int64_t last_publish = 0;
@@ -1200,14 +1253,16 @@ static void scope_thread(void *p1, void *p2, void *p3)
 
 		k_mutex_lock(&scope_lock, K_FOREVER);
 		c = config;
+		version = status.config_version;
 		k_mutex_unlock(&scope_lock);
 
-		/* a capture takes at least its record time, and the display needs no more */
+		/* a capture takes at least its record time, and the display needs no more; new
+		 * settings end the wait */
 		uint32_t record_ms = (uint32_t)(1000.0 * c.length * (c.divider + 1) / SCOPE_CLOCK_HZ);
 		int64_t wait = last_publish + MAX(DISPLAY_INTERVAL_MS, record_ms) - k_uptime_get();
 
 		if (wait > 0) {
-			k_msleep(wait);
+			wait_unless_changed(wait, version);
 		}
 
 		/* the settings as they are now, a config command may have come during the wait */
@@ -1236,11 +1291,20 @@ static void scope_thread(void *p1, void *p2, void *p3)
 					  c.length > SCOPE_WS_MAX_LENGTH ? NULL : (int16_t *)&messages[filling][offset],
 					  &cap);
 			capture_cycles = k_cycle_get_32() - t0;
+			if (ret != -EBUSY && status.armed_version != version) {
+				/* armed with these settings now: a script waits for this before it
+				 * starts what it captures */
+				status.armed_version = version;
+				broadcast_status();
+			}
 			if (ret == 0 || ret == -EBUSY || !status.running ||
 			    status.config_version != version) {
 				break;
 			}
-			k_msleep(MAX(10, record_ms / 4));
+			wait_unless_changed(MAX(10, record_ms / 4), version);
+			if (!status.running || status.config_version != version) {
+				break;
+			}
 		}
 		if (ret != 0) {
 			continue;

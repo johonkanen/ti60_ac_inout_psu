@@ -551,6 +551,14 @@ function connect() {
         scopeStopped = true;
         control.send(JSON.stringify({type: 'stop'}));
       }
+    } else if (message.type === 'config') {
+      // the board's settings after any client changed them; a collection keeps its own
+      const sourcesBefore = config && JSON.stringify(config.sources);
+      config = message.config;
+      if (built && !stream) {
+        showConfig(config);
+        if (JSON.stringify(config.sources) !== sourcesBefore) rebuildPlots();
+      }
     } else if (message.type === 'hello') {
       sourceNames = message.source_names;
       clockHz = message.clock_hz;

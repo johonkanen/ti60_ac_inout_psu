@@ -1012,6 +1012,14 @@ function connect() {
         showCapture(pendingCapture);
         pendingCapture = null;
       }
+    } else if (message.type === 'config') {
+      // the board's settings after any client changed them (this page, another, a script)
+      const sourcesBefore = config && JSON.stringify(config.sources);
+      config = message.config;
+      if (built) {
+        showConfig(config);
+        if (JSON.stringify(config.sources) !== sourcesBefore) replot();
+      }
     } else if (message.type === 'status') {
       showStatus(message);
       Banner.status(message);

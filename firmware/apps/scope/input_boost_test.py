@@ -116,13 +116,18 @@ def main():
     board.send({'type': 'dhb_clear_trip'})
     board.poll()
     # 10 kS/s, 32768 samples: 3.3 s from just before the start (the input test's lanes nonzero)
-    board.send({'type': 'config', 'config': {'divider': 12499, 'length': 32768, 'pre_percent': 2,
-                                             'mode': 'normal', 'trigger_channel': 3, 'trigger_edge': 0,
-                                             'trigger_level': 1, 'sources': sources}})
-    board.pump(0.3)
+    capture = {'divider': 12499, 'length': 32768, 'pre_percent': 2, 'mode': 'normal', 'trigger_channel': 3,
+               'trigger_edge': 0, 'trigger_level': 1, 'sources': sources}
+    version = board.configure(capture)
     board.captures.clear()
     board.send({'type': 'single'})
-    board.pump(0.3)
+    # the boost starts only once the scope waits for it with these settings: its start is the trigger
+    if version is None and board.config != {**board.config, **capture}:
+        board.send({'type': 'config', 'config': keep})
+        sys.exit('the board did not take the capture settings')
+    if not board.wait_armed(board.config_version):
+        board.send({'type': 'config', 'config': keep})
+        sys.exit('the scope did not arm with the capture settings')
     log = []
     ok = True
     try:
