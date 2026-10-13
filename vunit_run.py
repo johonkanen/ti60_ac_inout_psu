@@ -34,10 +34,15 @@ lib.add_source_files(fixed_point / "lut_interpolation" / "lut_reciprocal_pkg.vhd
 lib.add_source_files(fixed_point / "leading_zeros" / "leading_zeros_pkg.vhd")
 lib.add_source_files(fixed_point / "reciprocal_calculator" / "reciprocal_calculator.vhd")
 lib.add_source_files(fixed_point / "lut_divider" / "lut_divider.vhd")
-memory = fixed_point / "submodules" / "hVHDL_memory_library" / "vhdl2008"
+memory_library = root / "source" / "hVHDL_memory_library"
+memory = memory_library / "vhdl2008"
 lib.add_source_files(memory / "dp_ram_w_configurable_recrods.vhd")
 lib.add_source_files(memory / "arch_rtl_dp_ram_w_configurable_records.vhd")
 lib.add_source_files(memory / "mpram_w_configurable_records.vhd")
+# the HyperRAM controller, its package and the memory's model
+lib.add_source_files(memory_library / "hyperram" / "*.vhd")
+lib.add_source_files(memory_library / "testbench" / "hyperram" / "hyperram_model.vhd")
+lib.add_source_files(memory_library / "testbench" / "hyperram" / "hyperram_axi_tb.vhd")
 # hVHDL_microprogram_processor: the core and its fixed point multiply-add (output_control_processor)
 mproc = root / "source" / "hVHDL_microprogram_processor" / "rtl"
 for name in ["execution_unit", "microprogram_sequencer", "generic_microinstruction_pkg", "microinstruction_pkg",

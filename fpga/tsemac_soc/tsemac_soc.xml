@@ -14,7 +14,7 @@
         <efx:design_file name="../source/scope/test_signal_generator.vhd" version="default" library="default" />
         <efx:design_file name="../source/scope/scope_capture.vhd" version="default" library="default" />
         <efx:design_file name="../source/hyperram/async_fifo.vhd" version="default" library="default" />
-        <efx:design_file name="../source/hyperram/hyperram_pkg.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_memory_library/hyperram/hyperram_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/adc/ads7056.vhd" version="default" library="default" />
         <efx:design_file name="../source/adc/board_adc.vhd" version="default" library="default" />
         <efx:design_file name="../source/inverter/output_bridge_pkg.vhd" version="default" library="default" />
@@ -29,9 +29,9 @@
         <efx:design_file name="gate_power.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_fixed_point/fixed_dsp/fixed_dsp.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_fixed_point/fixed_dsp/arch_rtl_fixed_dsp.vhd" version="default" library="default" />
-        <efx:design_file name="../source/hVHDL_fixed_point/submodules/hVHDL_memory_library/vhdl2008/dp_ram_w_configurable_recrods.vhd" version="default" library="default" />
-        <efx:design_file name="../source/hVHDL_fixed_point/submodules/hVHDL_memory_library/vhdl2008/arch_rtl_dp_ram_w_configurable_records.vhd" version="default" library="default" />
-        <efx:design_file name="../source/hyperram/hyperram_axi.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_memory_library/vhdl2008/dp_ram_w_configurable_recrods.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_memory_library/vhdl2008/arch_rtl_dp_ram_w_configurable_records.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_memory_library/hyperram/hyperram_axi.vhd" version="default" library="default" />
         <efx:design_file name="sapphire_subsystem.vhd" version="default" library="default" />
         <efx:design_file name="../source/measurements/fixed_format_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/measurements/scaler_channels_pkg.vhd" version="default" library="default" />
@@ -50,7 +50,7 @@
         <efx:design_file name="../source/control/dhb_protection.vhd" version="default" library="default" />
         <efx:design_file name="../source/control/output_observer_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/control/output_voltage_control_pkg.vhd" version="default" library="default" />
-        <efx:design_file name="../source/hVHDL_fixed_point/submodules/hVHDL_memory_library/vhdl2008/mpram_w_configurable_records.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_memory_library/vhdl2008/mpram_w_configurable_records.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_microprogram_processor/rtl/generic_microinstruction_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_microprogram_processor/rtl/microinstruction_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_microprogram_processor/rtl/microprogram_interface_pkg.vhd" version="default" library="default" />

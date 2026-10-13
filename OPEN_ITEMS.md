@@ -119,10 +119,10 @@ item when it is done; the commit that does it says so.
   issue was written, not filed).
 - **The golden image still has Efinix's HyperRAM controller**, which corrupts DMA transfers on
   the HyperRAM's second die (0x02000000 up; 2026-10-11). The application image has ours
-  (fpga/source/hyperram/hyperram_axi.vhd) since then, and the scope stream's ring is on the
-  second die (32 MB, half a second at 3.9 MS/s). On the golden image the firmware refuses
-  the stream (capture_stream_ram_usable(): register 1336, our controller's calibration
-  status). Rebuilding and flashing the golden image needs JTAG (with the power stage off).
+  (hyperram/hyperram_axi.vhd in hVHDL_memory_library) since then, and the scope stream's
+  ring is on the second die (32 MB, half a second at 3.9 MS/s). On the golden image the
+  firmware refuses the stream (capture_stream_ram_usable(): register 1336, our controller's
+  calibration status). Rebuilding and flashing the golden image needs JTAG (with the power stage off).
 - hyperram_axi's state is readable at registers 1336 (calibration: phases that passed, the
   one chosen), 1337 (read timeouts: the calibration's failing phases give 2..4), 1338..1339
   (core state, queue, buffers). Under JTAG, with the CPU stuck on the memory, `reset halt`

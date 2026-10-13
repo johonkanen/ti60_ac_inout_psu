@@ -14,7 +14,7 @@ needed only once, to put the golden FPGA image in the flash.
 | `fpga/` | the FPGA designs and their VHDL ([details](#fpga)) |
 | `fpga/tsemac_soc/` | the design the board runs: Sapphire SoC, TSEMAC Ethernet, scope, ADCs, remote update |
 | `fpga/board_test/`, `fpga/board_test_cpu/` | the board's hardware test design, and it with a CPU |
-| `fpga/source/` | VHDL shared by the designs: the power stage's modulators (`dhb/`, `inverter/`), measurements, control, ADCs, scope, HyperRAM, Ethernet; `fpga_communication`, `hVHDL_fixed_point` (fixed point math cores), `hVHDL_ode` (differential equation solvers and power stage models) and `hVHDL_microprogram_processor` (a small fixed point processor for control programs) are submodules |
+| `fpga/source/` | VHDL shared by the designs: the power stage's modulators (`dhb/`, `inverter/`), measurements, control, ADCs, scope, HyperRAM, Ethernet; `fpga_communication`, `hVHDL_fixed_point` (fixed point math cores), `hVHDL_ode` (differential equation solvers and power stage models), `hVHDL_memory_library` (block RAMs and the HyperRAM controller) and `hVHDL_microprogram_processor` (a small fixed point processor for control programs) are submodules |
 | `firmware/` | Zephyr: boards, drivers, libraries, apps, the second-stage loader ([README](firmware/README.md)) |
 | `firmware/apps/scope/` | the board's application and its web pages |
 | `firmware/fpga/ti60_psu/` | scripts for the board: JTAG load, flash, console |

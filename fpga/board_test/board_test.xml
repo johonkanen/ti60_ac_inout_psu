@@ -12,7 +12,7 @@
         <efx:design_file name="../source/fpga_communication/hVHDL_uart/uart_tx/uart_tx_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/fpga_communication/serial_protocol_generic_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/fpga_communication/communications.vhd" version="default" library="default" />
-        <efx:design_file name="../source/hyperram/hyperram_pkg.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_memory_library/hyperram/hyperram_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/ethernet/cdc_snapshot.vhd" version="default" library="default" />
         <efx:design_file name="../source/hyperram/async_fifo.vhd" version="default" library="default" />
         <efx:design_file name="../source/hyperram/hyperram_ddr_controller.vhd" version="default" library="default" />

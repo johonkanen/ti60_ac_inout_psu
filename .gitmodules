@@ -10,3 +10,6 @@
 [submodule "fpga/source/hVHDL_microprogram_processor"]
 	path = fpga/source/hVHDL_microprogram_processor
 	url = https://github.com/hVHDL/hVHDL_microprogram_processor.git
+[submodule "fpga/source/hVHDL_memory_library"]
+	path = fpga/source/hVHDL_memory_library
+	url = https://github.com/hVHDL/hVHDL_memory_library.git
