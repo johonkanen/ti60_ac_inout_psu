@@ -36,7 +36,7 @@ lib.add_source_files(fixed_point / "reciprocal_calculator" / "reciprocal_calcula
 lib.add_source_files(fixed_point / "lut_divider" / "lut_divider.vhd")
 memory_library = root / "source" / "hVHDL_memory_library"
 memory = memory_library / "vhdl2008"
-lib.add_source_files(memory / "dp_ram_w_configurable_recrods.vhd")
+lib.add_source_files(memory / "dp_ram_w_configurable_records.vhd")
 lib.add_source_files(memory / "arch_rtl_dp_ram_w_configurable_records.vhd")
 lib.add_source_files(memory / "mpram_w_configurable_records.vhd")
 # the HyperRAM controller, its package and the memory's model

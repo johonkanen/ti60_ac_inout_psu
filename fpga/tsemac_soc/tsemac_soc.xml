@@ -29,7 +29,7 @@
         <efx:design_file name="gate_power.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_fixed_point/fixed_dsp/fixed_dsp.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_fixed_point/fixed_dsp/arch_rtl_fixed_dsp.vhd" version="default" library="default" />
-        <efx:design_file name="../source/hVHDL_memory_library/vhdl2008/dp_ram_w_configurable_recrods.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_memory_library/vhdl2008/dp_ram_w_configurable_records.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_memory_library/vhdl2008/arch_rtl_dp_ram_w_configurable_records.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_memory_library/hyperram/hyperram_axi.vhd" version="default" library="default" />
         <efx:design_file name="sapphire_subsystem.vhd" version="default" library="default" />
