@@ -259,10 +259,13 @@ void capture_sequencer_power_off(void);
 uint32_t capture_sequencer_state(void);
 /* the input bridge as a boost converter (input_boost_control.vhd, registers at 1260; its voltage
  * PI to the duty on the output control's core): a setting by its register (1 v_ref, 2 kp duty/V,
- * 3 ki duty/V a period, 7 d_max, 8 the overvoltage stop, 16 the ramp V/ms), start (when stopped), stop, the watchdog's kick; its state: [0] the
+ * 3 ki duty/V a period, 7 d_max, 8 the overvoltage stop, 16 the ramp V/ms, 19 the reference's
+ * prefilter: each of its two stages' share of a period's difference), start (when stopped), stop, the watchdog's kick; its state: [0] the
  * status (bit0 running, bit1..4 stopped by the overvoltage, a trip, the watchdog, inhibit), [1]
  * periods run */
 void capture_boost_set(int reg, double value);
+/* a gain or the prefilter as set (registers 2, 3, 19: 24 fractional bits) */
+double capture_boost_gain(int reg);
 void capture_boost_start(void);
 void capture_boost_stop(void);
 void capture_boost_kick(void);

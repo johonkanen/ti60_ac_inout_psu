@@ -49,7 +49,7 @@ architecture vunit_simulation of input_boost_control_tb is
     signal b_request, b_reset, b_ready : boolean := false;
     signal b_v_sum, b_v_ref, b_ramp, b_d_half : fixed_number := fixed_zero;
     signal b_count : natural range 0 to 8 := 0;
-    signal b_kp, b_ki : signed(31 downto 0) := (others => '0');
+    signal b_kp, b_ki, b_alpha : signed(31 downto 0) := (others => '0');
     signal b_duty, b_on_half, b_target, b_v : fixed_number;
     signal bus_from_boost, bus_from_core : fpga_interconnect_record := init_fpga_interconnect;
     signal u_ref : fixed_number;
@@ -73,7 +73,7 @@ begin
     dut : entity work.input_boost_control
     generic map(g_base_address => base)
     port map(clock, bus_in, bus_from_boost, scaled, scaled_ready, scaled_channel, trip, inhibit, running,
-             leg1, leg2, b_request, b_reset, b_v_sum, b_count, b_v_ref, b_ramp, b_d_half, b_kp, b_ki,
+             leg1, leg2, b_request, b_reset, b_v_sum, b_count, b_v_ref, b_ramp, b_d_half, b_kp, b_ki, b_alpha,
              b_ready, b_duty, b_on_half, b_target, b_v, probe);
 
     core : entity work.output_control_processor
@@ -85,7 +85,7 @@ begin
              control_probes => control_probes,
              boost_request => b_request, boost_reset => b_reset, boost_v_sum => b_v_sum,
              boost_count => b_count, boost_v_ref => b_v_ref, boost_ramp => b_ramp,
-             boost_d_half => b_d_half, boost_kp => b_kp, boost_ki => b_ki,
+             boost_d_half => b_d_half, boost_kp => b_kp, boost_ki => b_ki, boost_alpha => b_alpha,
              boost_ready => b_ready, boost_duty => b_duty, boost_on_half => b_on_half,
              boost_target => b_target, boost_v => b_v);
 
@@ -232,8 +232,8 @@ begin
                 -- 94.6 V to 105 V: the duty within 0.05 (156 clocks), only leg 2's low side
                 bus_write(base, to_signed(1, 32));
                 v_low := 200.0; v_high := 0.0; i_high := 0.0;
-                run_for(400 ms, v_low, v_high, i_high);
-                info("after 400 ms: the link " & real'image(v_link) & " V, the input current " &
+                run_for(800 ms, v_low, v_high, i_high);
+                info("after 800 ms (the prefilter: the start ~0.5 s): the link " & real'image(v_link) & " V, the input current " &
                      real'image(i_mean) & " A; its highest " & real'image(i_high) & " A, the link's " &
                      real'image(v_high) & " V; the widest pulse " & integer'image(widest) & " clocks");
                 check(abs(v_link - 105.0) < 0.3, "the link at 105 V");
@@ -295,11 +295,36 @@ begin
                 i_load <= 0.3;
                 bus_write(base, to_signed(1, 32));
                 v_low := 200.0; v_high := 0.0; i_high := 0.0;
-                run_for(400 ms, v_low, v_high, i_high);
+                run_for(800 ms, v_low, v_high, i_high);
                 v_low := 200.0; v_high := 0.0;
                 run_for(200 ms, v_low, v_high, i_high);
                 info("noisy readings: the link " & real'image(v_low) & " .. " & real'image(v_high) & " V");
                 check(v_low > 104.5 and v_high < 105.5, "the link within 0.5 V of 105 V");
+
+            elsif run("a_reference_step_without_the_prefilter_overshoots")
+                  or run("a_reference_step_with_the_prefilter") then
+                -- the board's loop: its gain a third of the model's, so kp and ki a third of the
+                -- defaults here (the prefilter's alpha, ki / kp, the same); 105 V, then 112 V
+                bus_write(base + 2, to_signed(integer(0.005 / 3.0 * 2.0**24), 32));
+                bus_write(base + 3, to_signed(integer(1.5e-6 / 3.0 * 2.0**24), 32));
+                if running_test_case = "a_reference_step_without_the_prefilter_overshoots" then
+                    bus_write(base + 19, to_signed(2**24, 32));     -- 1.0: none
+                end if;
+                bus_write(base, to_signed(1, 32));
+                v_low := 200.0; v_high := 0.0; i_high := 0.0;
+                run_for(800 ms, v_low, v_high, i_high);
+                info("the start: the link's highest " & real'image(v_high) & " V, now " & real'image(v_link) & " V");
+                bus_write(base + 1, to_fixed(112.0));
+                v_low := 200.0; v_high := 0.0;
+                run_for(1500 ms, v_low, v_high, i_high);
+                info("105 V -> 112 V: the link's highest " & real'image(v_high) & " V, after 1.5 s " &
+                     real'image(v_link) & " V");
+                if running_test_case = "a_reference_step_without_the_prefilter_overshoots" then
+                    check(v_high > 112.5, "without the prefilter the step overshoots (the test sees it)");
+                else
+                    check(v_high < 112.2, "with the prefilter no overshoot (within 0.2 V)");
+                    check(abs(v_link - 112.0) < 0.2, "at 112 V");
+                end if;
 
             elsif run("the_duty_at_most_0_2") then
                 -- d_max written 0.5, the reference out of reach: the duty at its ceiling, 0.2
@@ -307,6 +332,7 @@ begin
                 bus_write(base + 1, to_fixed(200.0));
                 bus_write(base + 8, to_fixed(300.0));
                 bus_write(base + 16, to_fixed(0.0));
+                bus_write(base + 19, to_signed(2**24, 32));     -- no prefilter: at once
                 i_load <= 3.0;
                 bus_write(base, to_signed(1, 32));
                 v_low := 200.0; v_high := 0.0; i_high := 0.0;
@@ -369,6 +395,6 @@ begin
         wait;
     end process;
 
-    test_runner_watchdog(runner, 5 sec);
+    test_runner_watchdog(runner, 10 sec);
 
 end vunit_simulation;

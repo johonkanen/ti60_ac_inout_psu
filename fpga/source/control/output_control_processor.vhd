@@ -95,7 +95,8 @@ entity output_control_processor is
         control_probes  : out scope_sample_array(0 to 1);
         -- the input boost's control: a step at each request (with boost_reset its reset); the
         -- link's readings' sum and count over the period, its reference, the reference's ramp
-        -- (V/ms), d_max / 2, the PI's gains (24 fractional bits: duty/V, duty/V a period)
+        -- (V/ms), d_max / 2, the PI's gains (24 fractional bits: duty/V, duty/V a period), the
+        -- reference's prefilter (24: its share of a period's difference)
         boost_request   : in boolean := false;
         boost_reset     : in boolean := false;
         boost_v_sum     : in fixed_number := fixed_zero;
@@ -105,6 +106,7 @@ entity output_control_processor is
         boost_d_half    : in fixed_number := fixed_zero;
         boost_kp        : in signed(31 downto 0) := (others => '0');
         boost_ki        : in signed(31 downto 0) := (others => '0');
+        boost_alpha     : in signed(31 downto 0) := (others => '0');
         -- its results, all of a step's written by its ready: the duty, the on time in half
         -- clocks, the reference as ramped, the link's mean
         boost_ready     : out boolean;
@@ -182,11 +184,11 @@ architecture rtl of output_control_processor is
     type address_array is array (natural range <>) of natural range 0 to data_words-1;
     constant observer_inputs : address_array(0 to 5) := (a_i_meas, a_v_sum, a_recip, a_has, a_u, a_on);
     constant control_inputs  : address_array(0 to 1) := (a_v_ref, a_u_app);
-    constant boost_inputs    : address_array(0 to 7) :=
-        (a_b_v_sum, a_b_recip, a_b_has, a_b_v_ref, a_b_ramp, a_b_dhalf, a_b_kp, a_b_ki);
-    signal inputs       : input_array(0 to 7) := (others => (others => '0'));
-    signal input_count  : natural range 0 to 8 := 0;
-    signal input_index  : natural range 0 to 8 := 0;
+    constant boost_inputs    : address_array(0 to 8) :=
+        (a_b_v_sum, a_b_recip, a_b_has, a_b_v_ref, a_b_ramp, a_b_dhalf, a_b_kp, a_b_ki, a_b_alpha);
+    signal inputs       : input_array(0 to 8) := (others => (others => '0'));
+    signal input_count  : natural range 0 to 9 := 0;
+    signal input_index  : natural range 0 to 9 := 0;
     signal writing_input : boolean := false;
     type client_type is (observer, control, boost);
     signal client       : client_type := observer;
@@ -448,7 +450,8 @@ begin
                         inputs(5) <= to_program(boost_d_half);
                         inputs(6) <= coefficient_to_program(boost_kp);
                         inputs(7) <= coefficient_to_program(boost_ki);
-                        input_count <= 8;
+                        inputs(8) <= coefficient_to_program(boost_alpha);
+                        input_count <= 9;
                         input_index <= 0;
                         client      <= boost;
                         if boost_resetting then

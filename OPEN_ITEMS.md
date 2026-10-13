@@ -17,10 +17,16 @@ item when it is done; the commit that does it says so.
   112 -> 105 V held within +-0.3 V (1 ms means), no trips; duty 0.066 at 105 V, 0.086 at
   112 V, about three times the testbench's 15 uH DCM model's, so the loop's gain is a third
   of the model's: the crossover ~1-4 Hz instead of 7-23 Hz. The start takes ~0.4 s to 105 V
-  (the reference's ramp 21 ms), the step to 112 V ~0.4 s with 1.5 V overshoot. Next:
-  1. raise kp ~3x (0.015 duty/V) and ki with it, then check the start and the steps again;
-  2. the input inductance and the link's capacitance from the run's data;
-  3. a peak current cutoff on the raw sigma-delta current is still missing; the duty cap is
+  (the reference's ramp 21 ms), the step to 112 V ~0.4 s with 1.5 V overshoot.
+  Since then the reference goes through a two-stage prefilter, both stages' corner at the
+  PI's zero (alpha = ki/kp per period, register 19, 24 fractional bits, 1.0 = none; the
+  firmware sets it from kp and ki unless given): in the testbench at a third of the gains
+  a 105 -> 112 V step overshoots 0.16 V instead of 0.80 V, the start takes ~0.5 s. Loaded
+  on the board (FPGA image 76) but not yet run. Next:
+  1. a boost run with the prefilter: the step's overshoot;
+  2. raise kp ~3x (0.015 duty/V) and ki with it, then check the start and the steps again;
+  3. the input inductance and the link's capacitance from the run's data;
+  4. a peak current cutoff on the raw sigma-delta current is still missing; the duty cap is
      the guard.
 - iac_in's sign: a 1 MS/s capture shows the boost's current pulses as positive counts (the
   firmware calibrates +256 counts/A), while the polarity test (`input_polarity_test.py`, removed

@@ -27,7 +27,11 @@ library ieee;
 -- 0.5 A). The defaults (kp 0.005 duty/V, ki 1.5e-6 duty/V a period: the PI's zero at 2 Hz) put
 -- the crossover at 7..23 Hz on 1.3 mF, well under the input filter's ~1 kHz resonance (15 uH with
 -- 1.3 mF) and slow against the 100 Hz ripple an AC output's power brings. The soft start's ramp
--- keeps the link's current C dV/dt while it charges.
+-- keeps the link's current C dV/dt while it charges. The reference, as ramped, goes through a
+-- prefilter of two first order stages before the PI, each at the PI's zero (alpha = ki / kp a
+-- period): the first cancels the zero, the second damps the loop's own poles' overshoot, so a
+-- step of the reference is followed without overshoot (the model at the board's gain: 0.8 V
+-- over a 7 V step without, 0.35 V with one stage).
 --
 -- Only leg 2's low side switches (the input's positive terminal is on leg 2): while it is on the
 -- input inductor's current builds, when it turns off it flows on through leg 2's high side body
@@ -63,6 +67,8 @@ library ieee;
 --   16 RW the reference's ramp, V/ms (0.5); 0: none
 --   17 R  the link's period mean, V (the control's)
 --   18 R  the input's voltage, V
+--   19 RW the reference's prefilter: each stage's share of a period's difference, 24 fractional bits
+--         (0.0003: ki / kp of the defaults, the PI's zero at 1.9 Hz); 1.0: none
 entity input_boost_control is
     generic(
         g_base_address : natural := 1260
@@ -90,6 +96,7 @@ entity input_boost_control is
         d_half         : out fixed_number;
         kp             : out signed(31 downto 0);
         ki             : out signed(31 downto 0);
+        alpha          : out signed(31 downto 0);
         -- from its boost outputs
         ready          : in boolean;
         duty_in        : in fixed_number;
@@ -135,6 +142,7 @@ architecture rtl of input_boost_control is
     signal kp_r       : std_logic_vector(31 downto 0) := std_logic_vector(to_signed(integer(0.005 * 2.0**24), 32));
     signal ki_r       : std_logic_vector(31 downto 0) := std_logic_vector(to_signed(integer(0.0000015 * 2.0**24), 32));
     signal ramp_r     : std_logic_vector(31 downto 0) := slv(to_fixed(0.5));
+    signal alpha_r    : std_logic_vector(31 downto 0) := std_logic_vector(to_signed(integer(0.0003 * 2.0**24), 32));
     signal d_max_r    : std_logic_vector(31 downto 0) := slv(to_fixed(0.05));
     signal limit_r    : std_logic_vector(31 downto 0) := slv(to_fixed(140.0));
     signal watchdog_r : std_logic_vector(31 downto 0) := to_slv(1000);
@@ -168,6 +176,7 @@ begin
     d_half  <= shift_right(clamp(signed(d_max_r), fixed_zero, d_max_ceiling), 1);
     kp      <= signed(kp_r);
     ki      <= signed(ki_r);
+    alpha   <= signed(alpha_r);
 
     process(clock)
         variable stop_now : boolean;
@@ -191,6 +200,7 @@ begin
             connect_data_to_address(bus_in, bus_out, g_base_address + 16, ramp_r);
             connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 17, slv(v_mean));
             connect_read_only_data_to_address(bus_in, bus_out, g_base_address + 18, slv(v_ac));
+            connect_data_to_address(bus_in, bus_out, g_base_address + 19, alpha_r);
 
             -- the measurements as they come, the link's summed for the period
             if scaled_ready and scaled_channel = scaled_vdc_in then

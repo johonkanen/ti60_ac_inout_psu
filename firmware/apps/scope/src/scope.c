@@ -881,7 +881,9 @@ static void handle_command(const char *message)
 	} else if (json_string_is(message, "type", "boost_start") ||
 		   json_string_is(message, "type", "boost_set")) {
 		/* the settings given (each limited); boost_start then starts it (when stopped),
-		 * boost_set only changes them: a run stopped meanwhile stays stopped */
+		 * boost_set only changes them: a run stopped meanwhile stays stopped. The
+		 * reference's prefilter (each stage's share of a period's difference) follows the
+		 * PI's zero, ki / kp, when kp or ki is given without it */
 		static const struct {
 			const char *name;
 			int reg;
@@ -889,7 +891,9 @@ static void handle_command(const char *message)
 		} settings[] = {
 			{"v_ref", 1, 0.0, 400.0}, {"kp", 2, 0.0, 0.1}, {"ki", 3, 0.0, 0.001},
 			{"d_max", 7, 0.0, 0.2}, {"limit", 8, 0.0, 450.0}, {"ramp", 16, 0.0, 10.0},
+			{"prefilter", 19, 0.0, 1.0},
 		};
+		bool gains = false, prefilter = false;
 
 		for (size_t i = 0; i < ARRAY_SIZE(settings); i++) {
 			double value;
@@ -897,7 +901,14 @@ static void handle_command(const char *message)
 			if (json_number(message, settings[i].name, &value)) {
 				capture_boost_set(settings[i].reg,
 						  CLAMP(value, settings[i].low, settings[i].high));
+				gains |= settings[i].reg == 2 || settings[i].reg == 3;
+				prefilter |= settings[i].reg == 19;
 			}
+		}
+		if (gains && !prefilter) {
+			double kp = capture_boost_gain(2), ki = capture_boost_gain(3);
+
+			capture_boost_set(19, kp > 0.0 ? CLAMP(ki / kp, 0.0, 1.0) : 1.0);
 		}
 		if (json_string_is(message, "type", "boost_start")) {
 			LOG_WRN("input boost: start, the link to %.1f V", capture_boost_value(6));

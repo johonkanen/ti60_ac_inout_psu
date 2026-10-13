@@ -206,7 +206,7 @@ architecture rtl of tsemac_soc_top is
     signal boost_request, boost_reset, boost_ready : boolean;
     signal boost_v_sum, boost_v_ref, boost_ramp, boost_d_half : fixed_number;
     signal boost_count          : natural range 0 to boost_max_readings;
-    signal boost_kp, boost_ki   : signed(31 downto 0);
+    signal boost_kp, boost_ki, boost_alpha : signed(31 downto 0);
     signal boost_duty, boost_on_half, boost_target, boost_v : fixed_number;
     signal boost_running        : boolean;
     signal bus_from_lcd         : fpga_interconnect_record := init_fpga_interconnect;
@@ -593,6 +593,7 @@ begin
         ,d_half         => boost_d_half
         ,kp             => boost_kp
         ,ki             => boost_ki
+        ,alpha          => boost_alpha
         ,ready          => boost_ready
         ,duty_in        => boost_duty
         ,on_half        => boost_on_half
@@ -746,6 +747,7 @@ begin
         ,boost_d_half    => boost_d_half
         ,boost_kp        => boost_kp
         ,boost_ki        => boost_ki
+        ,boost_alpha     => boost_alpha
         ,boost_ready     => boost_ready
         ,boost_duty      => boost_duty
         ,boost_on_half   => boost_on_half

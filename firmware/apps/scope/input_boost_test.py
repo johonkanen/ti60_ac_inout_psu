@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """The input bridge as a boost converter from a DC source: the primary DC link held at a reference.
     python3 input_boost_test.py [address] [--v-ref 105] [--step 112] [--d-max 0.05] [--limit 120]
-                                [--kp 0.005] [--ki 1.5e-6] [--hold 1.5] [--yes]
+                                [--kp 0.005] [--ki 1.5e-6] [--prefilter ALPHA] [--hold 1.5] [--yes]
 
 input_boost_control.vhd switches only leg 2's low side (the input's positive terminal), so no
 current can flow back into the source. Its voltage PI (on the output control's microprogram core)
 sets the duty straight from the link's period mean, within d_max, its crossover some Hz; the
-input current is not controlled (its measurement too noisy), only shown.
+input current is not controlled (its measurement too noisy), only shown. The reference goes
+through a two stage prefilter first, by default at the PI's zero (alpha = ki / kp a period, the
+firmware's), so a step does not overshoot.
 
 The run: the boost started from where the link is, its reference ramping to v_ref; after hold
 seconds the reference stepped to step, after hold more back to v_ref, then stopped. A 10 kS/s
@@ -77,6 +79,8 @@ def main():
     parser.add_argument('--d-max', type=float, default=0.05, help="the duty's limit")
     parser.add_argument('--kp', type=float, default=0.005, help='the PI, duty/V')
     parser.add_argument('--ki', type=float, default=1.5e-6, help='the PI, duty/V a period (25 us)')
+    parser.add_argument('--prefilter', type=float, help="each prefilter stage's share of a period's "
+                        'difference (default ki / kp; 1.0 none)')
     parser.add_argument('--limit', type=float, default=120.0, help='the overvoltage stop, V')
     parser.add_argument('--hold', type=float, default=1.5, help='seconds at each reference')
     parser.add_argument('--yes', action='store_true', help='do not ask before running the power stage')
@@ -122,8 +126,11 @@ def main():
     log = []
     ok = True
     try:
-        board.send({'type': 'boost_start', 'v_ref': args.v_ref, 'd_max': args.d_max, 'kp': args.kp,
-                    'ki': args.ki, 'limit': args.limit})
+        start = {'type': 'boost_start', 'v_ref': args.v_ref, 'd_max': args.d_max, 'kp': args.kp,
+                 'ki': args.ki, 'limit': args.limit}
+        if args.prefilter is not None:
+            start['prefilter'] = args.prefilter
+        board.send(start)
         print(f'the reference {args.v_ref:g} V')
         ok = watch(board, args.hold, log)
         if ok:

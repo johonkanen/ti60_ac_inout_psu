@@ -406,6 +406,12 @@ void capture_boost_set(int reg, double value)
 	ARG_UNUSED(value);
 }
 
+double capture_boost_gain(int reg)
+{
+	ARG_UNUSED(reg);
+	return 0.0;
+}
+
 void capture_boost_start(void)
 {
 }

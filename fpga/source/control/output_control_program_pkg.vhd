@@ -36,12 +36,15 @@ library ieee;
 -- and two of the input boost's (input_boost_control's voltage control, its link's voltage held
 -- by the duty alone: the input current too noisy to control):
 --   boost_start        a period's step: the link's readings' mean (none: the mean before), the
---                      reference a ramp's step on towards v_ref, the PI on the reference less the
---                      mean to the duty, limited to 0 .. d_max (the limits as +-d_max/2 about
+--                      reference a ramp's step on towards v_ref, then through the prefilter (two
+--                      first order low passes, each's share of a period's difference alpha: at
+--                      the PI's zero, ki / kp, the first cancels the zero, whose lead overshoots
+--                      a step, the second damps what the loop's own poles still overshoot),
+--                      the PI on the filtered reference less the mean to the duty, limited to 0 .. d_max (the limits as +-d_max/2 about
 --                      d_max/2; the integral held while the limit's excess and its increment
 --                      push the same way), the on time as half clocks
---   boost_reset_start  a start: the mean taken, the reference from it, the integral and the duty
---                      cleared
+--   boost_reset_start  a start: the mean taken, the reference and the prefilter from it, the
+--                      integral and the duty cleared
 package output_control_program_pkg is
 
     constant program_radix      : natural := 24;
@@ -113,6 +116,8 @@ package output_control_program_pkg is
     constant a_b_int   : natural := 106; constant a_b_duty  : natural := 107;
     constant a_b_on    : natural := 108; constant a_b_excess : natural := 109;
     constant a_b_ms    : natural := 110; constant a_b_half_clocks : natural := 111;
+    constant a_b_alpha : natural := 112; constant a_b_ref_f : natural := 113;
+    constant a_b_ref_1 : natural := 114;
     -- the most of the link's readings a period
     constant boost_max_readings : natural := 8;
 
@@ -147,7 +152,7 @@ package body output_control_program_pkg is
 
     -- temporaries: the output's programs', the boost's
     constant t0 : natural := 64;
-    constant t1_boost : natural := 112;
+    constant t1_boost : natural := 116;
 
     function observer_code return microprogram is
         constant a1 : natural := t0;       constant b1 : natural := t0 + 1;
@@ -309,8 +314,10 @@ package body output_control_program_pkg is
             ,mi(lp_filter , a_b_v     , v_meas    , a_b_v     , a_b_has)
             ,mi_limit(step, d_t, step_max)
             ,mi(mpy_add   , a_b_target, step      , a_one     , a_b_target)
-            -- the PI, its output about d_max/2 limited to +-d_max/2
-            ,mi(mpy_sub   , e         , a_b_target, a_one     , a_b_v)
+            -- the prefilter, then the PI, its output about d_max/2 limited to +-d_max/2
+            ,mi(lp_filter , a_b_ref_1 , a_b_target, a_b_ref_1 , a_b_alpha)
+            ,mi(lp_filter , a_b_ref_f , a_b_ref_1 , a_b_ref_f , a_b_alpha)
+            ,mi(mpy_sub   , e         , a_b_ref_f , a_one     , a_b_v)
             ,mi(mpy_add   , raw       , e         , a_b_kp    , a_b_int)
             ,mi(mpy_add   , d_i       , e         , a_b_ki    , a_zero)
             ,mi(mpy_sub   , centered  , raw       , a_one     , a_b_dhalf)
@@ -330,6 +337,8 @@ package body output_control_program_pkg is
              mi(mpy_add   , v_meas    , a_b_v_sum , a_b_recip , a_zero)
             ,mi(lp_filter , a_b_v     , v_meas    , a_b_v     , a_b_has)
             ,mi(mpy_add   , a_b_target, a_b_v     , a_one     , a_zero)
+            ,mi(mpy_add   , a_b_ref_1 , a_b_v     , a_one     , a_zero)
+            ,mi(mpy_add   , a_b_ref_f , a_b_v     , a_one     , a_zero)
             ,mi(mpy_add   , a_b_int   , a_zero    , a_zero    , a_zero)
             ,mi(mpy_add   , a_b_duty  , a_zero    , a_zero    , a_zero)
             ,mi(mpy_add   , a_b_on    , a_zero    , a_zero    , a_zero)
