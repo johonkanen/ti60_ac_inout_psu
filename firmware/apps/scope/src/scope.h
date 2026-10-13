@@ -261,6 +261,12 @@ void capture_sequencer_stop(void);
 void capture_sequencer_power_off(void);
 void capture_sequencer_output_on(void);    /* from idle: the output bridge armed */
 void capture_sequencer_output_off(void);   /* the output alone stopped, back to idle */
+
+/* the supply's state as the pages show it (scope.c's supply_state) */
+const char *scope_supply_state(void);
+/* the face panel's buttons: "supply_run", "output_on", "output_off", as a page's commands; a
+ * start from the panel keeps the watchdogs kicked until the supply is stopped (no page needed) */
+void scope_panel_command(const char *type);
 uint32_t capture_sequencer_state(void);
 /* the input bridge as a boost converter (input_boost_control.vhd, registers at 1260; its voltage
  * PI to the duty on the output control's core): a setting by its register (1 v_ref, 2 kp duty/V,
@@ -279,6 +285,9 @@ void capture_boost_state(uint32_t state[2]);
  * a string into it at a place (row * cols + col), and a redraw */
 void capture_lcd_text(uint32_t place, const char *text);
 void capture_lcd_draw(void);
+/* lcd_display's button 0..2 (0 the STOP button): its area, pixels x from, to, y from, to (none:
+ * x from over x to), its text and background colours 0xRRGGBB */
+void capture_lcd_button(int button, const uint32_t area[4], uint32_t text_rgb, uint32_t background_rgb);
 uint32_t capture_lcd_cols(void);
 /* the touch screen (touch_reader.vhd, registers at 1320): [0] touched, [1] X and [2] Y of the
  * last touch (0..4095), [3] the pressure's Z1 */

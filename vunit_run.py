@@ -71,6 +71,7 @@ lib.test_bench("output_voltage_control_tb").set_generic("g_out_file", str(fit_da
 lib.add_source_files(root / "source" / "dhb" / "*.vhd")
 lib.add_source_files(root / "source" / "dhb" / "sim" / "*.vhd")
 lib.add_source_files(root / "tsemac_soc" / "scope" / "*.vhd")
+lib.add_source_files(root / "tsemac_soc" / "fpga_registers_pkg.vhd")
 lib.add_source_files(root / "tsemac_soc" / "ad_subsystem.vhd")
 lib.add_source_files(root / "tsemac_soc" / "gate_power.vhd")
 lib.add_source_files(root / "tsemac_soc" / "dhb_test.vhd")
@@ -87,7 +88,7 @@ lib.add_source_files(root / "tsemac_soc" / "scope" / "sim" / "*.vhd")
 lib.test_bench("dhb_test_tb").test("a_short_burst_and_limits").set_generic("max_periods", 1000)
 
 # the LCD's tests of several screens on a screen of 96 rows, each 2.2 M clocks (the panel's 320: 7.4 M)
-for test in ("draws_written_text_in_its_colours", "a_draw_asked_for_during_a_draw_follows_it"):
+for test in ("draws_written_text_in_its_colours", "draws_the_other_buttons", "a_draw_asked_for_during_a_draw_follows_it"):
     lib.test_bench("lcd_display_tb").test(test).set_generic("height", 96)
 
 tester_tb = lib.test_bench("hyperram_tester_tb")

@@ -3,6 +3,7 @@ library ieee;
     use ieee.numeric_std.all;
 
     use work.fpga_interconnect_pkg.all;
+    use work.fpga_registers_pkg.all;
     use work.scope_pkg.all;
     use work.image_role_pkg.all;
     use work.dhb_modulator_pkg.all;
@@ -369,7 +370,7 @@ begin
     -- the golden or application image (image_role_pkg, written by build.sh), and switching
     -- between them, registers at 800..
     u_remote_update : entity work.remote_update
-    generic map(g_base_address => 800, g_role => image_role)
+    generic map(g_base_address => remote_update_registers.base, g_role => image_role)
     port map(
         clock       => io_tseClk
         ,bus_in     => bus_to_slaves
@@ -409,6 +410,8 @@ begin
     );
 ------------------------------------------------------------------------
     u_adc : entity work.ad_subsystem
+    generic map(g_sec_address => secondary_adc_registers.base, g_pri_address => primary_adc_registers.base,
+                g_sdm_address => sdm_adc_registers.base)
     port map(
         clock      => io_tseClk
         ,adc_clock => ram_clk      -- 200 MHz: 50 MHz SCLK, 2.5 MS/s
@@ -455,7 +458,7 @@ begin
     end generate;
 
     u_scaler : entity work.measurement_scaler
-    generic map(g_base_address => 900, g_channels => scaler_channels)
+    generic map(g_base_address => scaler_registers.base, g_channels => scaler_channels)
     port map(
         clock           => io_tseClk
         ,bus_in         => bus_to_slaves
@@ -470,7 +473,7 @@ begin
     -- the DHB's voltage control: the secondary DC link to the primary's, a PI on the scaled
     -- voltages giving the phase shift (registers 1100..) for the bridge when it runs
     u_dhb_control : entity work.dhb_voltage_controller
-    generic map(g_base_address => 1100, g_primary_channel => scaled_vdc_in, g_secondary_channel => scaled_vdc_out)
+    generic map(g_base_address => dhb_control_registers.base, g_primary_channel => scaled_vdc_in, g_secondary_channel => scaled_vdc_out)
     port map(
         clock           => io_tseClk
         ,bus_in         => bus_to_slaves
@@ -485,7 +488,7 @@ begin
 
     -- the DHB's trips: overcurrent and overvoltage (registers 1120..), latched until cleared
     u_dhb_protection : entity work.dhb_protection
-    generic map(g_base_address => 1120, g_current_channel => scaled_i_dab, g_output_current_channel => scaled_iac_out,
+    generic map(g_base_address => dhb_protection_registers.base, g_current_channel => scaled_i_dab, g_output_current_channel => scaled_iac_out,
                 g_primary_channel => scaled_vdc_in, g_secondary_channel => scaled_vdc_out)
     port map(
         clock           => io_tseClk
@@ -501,7 +504,7 @@ begin
     -- the gate driver supplies, which also power the sigma-delta modulators' analog side:
     -- PWMs the software turns on (gate_power.vhd, registers at 760..), off at power up
     u_gate_power : entity work.gate_power
-    generic map(g_base_address => 760)
+    generic map(g_base_address => gate_power_registers.base)
     port map(
         clock    => io_tseClk
         ,bus_in  => bus_to_slaves
@@ -519,7 +522,7 @@ begin
     -- and with a run time the bridge running after it on the voltage controller's phase, both
     -- legs, stopping itself
     u_dhb_test : entity work.dhb_test
-    generic map(g_base_address => 780)
+    generic map(g_base_address => dhb_test_registers.base)
     port map(
         clock          => io_tseClk
         ,bus_in        => bus_to_slaves
@@ -540,7 +543,7 @@ begin
     -- the output bridge's open loop step test (output_bridge_test.vhd, registers at 1140..):
     -- complementary modulation at 40 kHz, only while the DHB runs, off on a trip
     u_output_test : entity work.output_bridge_test
-    generic map(g_base_address => 1140)
+    generic map(g_base_address => output_bridge_registers.base)
     port map(
         clock    => io_tseClk
         ,bus_in  => bus_to_slaves
@@ -572,7 +575,7 @@ begin
     -- at 1260..): only leg 2's low side switching, the link's voltage held by a slow voltage PI
     -- straight to the duty, run on the output control's microprogram core
     u_input_boost : entity work.input_boost_control
-    generic map(g_base_address => 1260)
+    generic map(g_base_address => input_boost_registers.base)
     port map(
         clock           => io_tseClk
         ,bus_in         => bus_to_slaves
@@ -608,7 +611,7 @@ begin
     -- the face panel's LCD (lcd_display.vhd, registers at 1300..): a screen of text, set up and
     -- drawn at start, its text written and redrawn by the software (the IP address)
     u_lcd : entity work.lcd_display
-    generic map(g_base_address => 1300)
+    generic map(g_base_address => lcd_registers.base, g_buttons_address => lcd_button_registers.base)
     port map(
         clock      => io_tseClk
         ,bus_in    => bus_to_slaves
@@ -632,18 +635,18 @@ begin
             hyperram_sync <= (hyperram_status & hyperram_timeouts & hyperram_debug, hyperram_sync(0));
             h := hyperram_sync(1);
             init_bus(bus_from_version);
-            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1335,
+            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, version_register,
                 std_logic_vector(to_unsigned(image_git_dirty * 8, 4)) & std_logic_vector(to_unsigned(image_git_hash, 28)));
-            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1336, h(111 downto 80));
-            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1337, x"0000" & h(79 downto 64));
-            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1338, h(31 downto 0));
-            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, 1339, h(63 downto 32));
+            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, hyperram_status_register, h(111 downto 80));
+            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, hyperram_timeout_register, x"0000" & h(79 downto 64));
+            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, hyperram_debug_register, h(31 downto 0));
+            connect_read_only_data_to_address(bus_to_slaves, bus_from_version, hyperram_debug_register + 1, h(63 downto 32));
         end if;
     end process;
 
     -- the touch screen (touch_reader.vhd, registers at 1320..): polled every 5 ms
     u_touch : entity work.touch_reader
-    generic map(g_base_address => 1320)
+    generic map(g_base_address => touch_registers.base)
     port map(
         clock    => io_tseClk
         ,bus_in  => bus_to_slaves
@@ -659,7 +662,7 @@ begin
     -- gate driver supplies, the input boost to its reference, then the DHB (held running), idle;
     -- the output on and off from there; its stop the panel's
     u_sequencer : entity work.supply_sequencer
-    generic map(g_base_address => 1340)
+    generic map(g_base_address => sequencer_registers.base)
     port map(
         clock           => io_tseClk
         ,bus_in         => bus_to_slaves
@@ -712,7 +715,7 @@ begin
     -- the output voltage's arbitrary waveform (registers 1200..): a table of 512 points, the
     -- closed loop's reference in the output test's waveform mode
     u_waveform : entity work.waveform_player
-    generic map(g_base_address => 1200, g_points => 512)
+    generic map(g_base_address => waveform_registers.base, g_points => 512)
     port map(
         clock     => io_tseClk
         ,bus_in   => bus_to_slaves
@@ -729,7 +732,7 @@ begin
     -- closed loop, a control step after the observer's that follows the period's start, its
     -- bridge reference to the output test's modulator
     u_output_control : entity work.output_control_processor
-    generic map(g_observer_address => 1160, g_control_address => 1180,
+    generic map(g_observer_address => observer_registers.base, g_control_address => output_control_registers.base,
                 g_current_channel => scaled_iac_out_sampled, g_voltage_channel => scaled_vfilt_out)
     port map(
         clock           => io_tseClk

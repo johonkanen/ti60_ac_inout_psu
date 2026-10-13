@@ -761,6 +761,19 @@ uint32_t capture_lcd_cols(void)
 	return sys_read32(LCD_REGISTER(7)) & 0xff;
 }
 
+/* lcd_display's buttons: 0 at its registers 8..13, 1 and 2 from 1360 (g_buttons_address) */
+#define LCD_BUTTON_REGISTER(b, r) \
+	((b) == 0 ? LCD_REGISTER(8 + (r)) : (REGISTERS + 4 * 1360 + 4 * (6 * ((b) - 1) + (r))))
+
+void capture_lcd_button(int button, const uint32_t area[4], uint32_t text_rgb, uint32_t background_rgb)
+{
+	for (int r = 0; r < 4; r++) {
+		sys_write32(area[r], LCD_BUTTON_REGISTER(button, r));
+	}
+	sys_write32(text_rgb, LCD_BUTTON_REGISTER(button, 4));
+	sys_write32(background_rgb, LCD_BUTTON_REGISTER(button, 5));
+}
+
 void capture_net_state(struct scope_net_state *state)
 {
 	memset(state, 0, sizeof(*state));

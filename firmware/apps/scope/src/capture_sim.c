@@ -380,6 +380,14 @@ uint32_t capture_lcd_cols(void)
 	return 24;
 }
 
+void capture_lcd_button(int button, const uint32_t area[4], uint32_t text_rgb, uint32_t background_rgb)
+{
+	ARG_UNUSED(button);
+	ARG_UNUSED(area);
+	ARG_UNUSED(text_rgb);
+	ARG_UNUSED(background_rgb);
+}
+
 void capture_net_state(struct scope_net_state *state)
 {
 	memset(state, 0, sizeof(*state));

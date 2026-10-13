@@ -100,8 +100,11 @@ item when it is done; the commit that does it says so.
   (`{"type": "touch_calibrate"}`: four "+" targets, an affine fit kept in flash).
 - The STOP button works in the FPGA alone (touch_reader's area, lcd_display's red rectangle):
   the output brought down and stopped, the DHB after it, the input boost off.
-  Tested on the board in closed loop. Next: start buttons (Start to idle, Output on/off, as
-  the banner's) and a system state indicator.
+  Tested on the board in closed loop. START and OUTPUT next to it (lcd_display's buttons 1
+  and 2, registers 1360..; panel.c: START to idle, OUTPUT on from idle / off when running,
+  grey when they would do nothing; the supply's state and DC links on row 3) are the
+  firmware's; a start from the panel keeps the watchdogs kicked until the supply stops. On
+  the board (2026-10-13): START to idle, OUTPUT on, STOP. They need the touch calibration.
 - Efinity numbers the bits of an unconstrained record field (the memory library's RAM output)
   the other way from the simulator: indexing a bit of it directly mirrored each character on
   the board while the testbench passed. Copy such a vector whole into a constrained one before
@@ -135,7 +138,8 @@ item when it is done; the commit that does it says so.
   issue was written, not filed).
 - **The golden image still has Efinix's HyperRAM controller**, which corrupts DMA transfers on
   the HyperRAM's second die (0x02000000 up; 2026-10-11). The application image has ours
-  (hyperram/hyperram_axi.vhd in hVHDL_memory_library) since then, and the scope stream's
+  (hVHDL_memory_library's hyperram_core.vhd, native, behind hyperram_axi.vhd's AXI3 port
+  since 2026-10-13) since then, and the scope stream's
   ring is on the second die (32 MB, half a second at 3.9 MS/s). On the golden image the
   firmware refuses the stream (capture_stream_ram_usable(): register 1336, our controller's
   calibration status). Rebuilding and flashing the golden image needs JTAG (with the power stage off).

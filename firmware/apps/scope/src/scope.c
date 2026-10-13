@@ -883,11 +883,19 @@ void scope_settings_load(void)
 #define WATCHDOG_KICK_MS  200
 #define CLIENT_SILENCE_MS 3000
 static int64_t last_client_message = INT64_MIN / 2;
+/* the supply started from the face panel: kicked while it is up, no page needed (a stuck
+ * firmware still lets the watchdogs stop it) */
+static atomic_t panel_started;
 
 static void watchdog_kick(struct k_timer *timer)
 {
 	ARG_UNUSED(timer);
-	if (k_uptime_get() - last_client_message < CLIENT_SILENCE_MS) {
+	uint32_t step = capture_sequencer_state() & 0xf;
+
+	if (step == 0 || step == 9) {
+		atomic_set(&panel_started, 0);
+	}
+	if (k_uptime_get() - last_client_message < CLIENT_SILENCE_MS || atomic_get(&panel_started)) {
 		capture_output_kick();
 		capture_boost_kick();
 	}
@@ -1053,6 +1061,31 @@ static void handle_command(const char *message)
 	if (configured) {
 		broadcast_config();
 	}
+	broadcast_status();
+}
+
+const char *scope_supply_state(void)
+{
+	return supply_state();
+}
+
+void scope_panel_command(const char *type)
+{
+	k_mutex_lock(&scope_lock, K_FOREVER);
+	if (strcmp(type, "supply_run") == 0) {
+		LOG_WRN("the face panel's START");
+		supply_run();
+		if ((capture_sequencer_state() & 0xf) != 0) {
+			atomic_set(&panel_started, 1);
+		}
+	} else if (strcmp(type, "output_on") == 0) {
+		LOG_WRN("the face panel's OUTPUT on");
+		output_on();
+	} else if (strcmp(type, "output_off") == 0) {
+		LOG_WRN("the face panel's OUTPUT off");
+		capture_sequencer_output_off();
+	}
+	k_mutex_unlock(&scope_lock);
 	broadcast_status();
 }
 

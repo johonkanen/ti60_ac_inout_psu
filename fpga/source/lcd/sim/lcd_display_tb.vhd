@@ -13,8 +13,8 @@ context vunit_lib.vunit_context;
 -- the reset pulse, the set up (18-bit colour, the memory access control, sleep out, display on),
 -- the draw's window (0..479 x 0..319) and every pixel of the screen against the font and the text
 -- as it should be (the STOP button in its own colours): the first text, then text written through
--- the registers; the colours; a draw
--- asked for during a draw following it; chip select high when idle. height: the screen's rows of
+-- the registers; the colours; the other two buttons (written areas and colours, overlapping);
+-- a draw asked for during a draw following it; chip select high when idle. height: the screen's rows of
 -- pixels, 320 as the panel's (the first text, the STOP button); vunit_run.py draws the tests of
 -- several screens on 96 (three rows of text), each screen then 2.2 M clocks instead of 7.4 M.
 entity lcd_display_tb is
@@ -49,13 +49,15 @@ architecture vunit_simulation of lcd_display_tb is
     signal expected_text : text_array := blank_text;
     signal foreground : std_logic_vector(23 downto 0) := x"FFFFFF";
     signal background : std_logic_vector(23 downto 0) := x"000000";
-    -- the STOP button's area and colours
-    constant button_x0 : natural := 330;
-    constant button_x1 : natural := 469;
-    constant button_y0 : natural := 236;
-    constant button_y1 : natural := 309;
-    constant button_fg : std_logic_vector(23 downto 0) := x"FFFFFF";
-    constant button_bg : std_logic_vector(23 downto 0) := x"C00000";
+    -- the buttons' areas and colours: 0 the STOP button, 1 and 2 none until written
+    type button_record is record
+        x0, x1, y0, y1 : natural;
+        fg, bg : std_logic_vector(23 downto 0);
+    end record;
+    type button_array is array (0 to 2) of button_record;
+    signal buttons : button_array := (
+        0 => (330, 469, 236, 309, x"FFFFFF", x"C00000"),
+        others => (1023, 0, 1023, 0, x"FFFFFF", x"404040"));
 
     -- the model's findings
     signal bytes_seen   : natural := 0;
@@ -98,6 +100,7 @@ begin
         variable p, x, y, ch, glyph_row : natural;
         variable code   : natural;
         variable want   : std_logic_vector(23 downto 0);
+        variable in_button : integer;
         variable errors : natural := 0;
         variable in_frame : boolean := false;
         type window_values is array (0 to 3) of natural;
@@ -148,11 +151,18 @@ begin
                                     ch := (y / (16 * scale)) * cols + x / (10 * scale);
                                     code := character'pos(expected_text(ch));
                                     glyph_row := to_integer(unsigned(lcd_font((code - 32) * 16 + (y / scale) mod 16)));
-                                    if x >= button_x0 and x <= button_x1 and y >= button_y0 and y <= button_y1 then
+                                    in_button := -1;
+                                    for b in 2 downto 0 loop
+                                        if x >= buttons(b).x0 and x <= buttons(b).x1 and
+                                           y >= buttons(b).y0 and y <= buttons(b).y1 then
+                                            in_button := b;
+                                        end if;
+                                    end loop;
+                                    if in_button >= 0 then
                                         if (glyph_row / 2**(9 - (x / scale) mod 10)) mod 2 = 1 then
-                                            want := button_fg;
+                                            want := buttons(in_button).fg;
                                         else
-                                            want := button_bg;
+                                            want := buttons(in_button).bg;
                                         end if;
                                     elsif (glyph_row / 2**(9 - (x / scale) mod 10)) mod 2 = 1 then
                                         want := foreground;
@@ -200,6 +210,9 @@ begin
 
         variable t : text_array;
         variable frames_before : natural;
+        type natural_list is array (0 to 5) of natural;
+        constant button_values_1 : natural_list := (10, 179, 36, 75, 16#FFFFFF#, 16#008000#);
+        constant button_values_2 : natural_list := (170, 319, 36, 75, 16#FFFF00#, 16#0050C0#);
     begin
         test_runner_setup(runner, runner_cfg);
         wait for 100 ns;
@@ -236,6 +249,27 @@ begin
                 bus_write(base, x"02");
                 wait until frames = 2 or pixel_errors > 0 for 200 ms;
                 check_equal(pixel_errors, 0, "the new text, every pixel");
+                check_equal(frames, 2, "a second screen");
+
+            elsif run("draws_the_other_buttons") then
+                -- buttons 1 and 2 written (the panel's START and OUTPUT), their labels in them,
+                -- button 1 overlapping 2 by ten pixels: there button 1's colours
+                wait until frames = 1 for 200 ms;
+                t := blank_text;
+                t(cols + 2 to cols + 6) := "START";
+                t(cols + 9 to cols + 14) := "OUTPUT";
+                write_text(cols + 2, "START");
+                write_text(cols + 9, "OUTPUT");
+                for r in 0 to 5 loop
+                    bus_write(1360 + r, std_logic_vector(to_unsigned(button_values_1(r), 24)));
+                    bus_write(1366 + r, std_logic_vector(to_unsigned(button_values_2(r), 24)));
+                end loop;
+                expected_text <= t;
+                buttons(1) <= (10, 179, 36, 75, x"FFFFFF", x"008000");
+                buttons(2) <= (170, 319, 36, 75, x"FFFF00", x"0050C0");
+                bus_write(base, x"02");
+                wait until frames = 2 or pixel_errors > 0 for 200 ms;
+                check_equal(pixel_errors, 0, "the buttons, every pixel");
                 check_equal(frames, 2, "a second screen");
 
             elsif run("a_draw_asked_for_during_a_draw_follows_it") then

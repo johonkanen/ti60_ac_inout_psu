@@ -18,6 +18,14 @@
  * touch_reader stops the power stage when it is pressed, in the FPGA alone, so it works without
  * this software or the network. Here only its area is given to touch_reader in raw readings,
  * through the calibration (touch_reader's defaults are this board's), and a press is shown.
+ *
+ * START and OUTPUT, lcd_display's buttons 1 and 2 left of it, are this software's: START from
+ * off or stopped starts the supply as a page's Start (the boost to its reference, then the DAB:
+ * idle), OUTPUT switches the output on from idle and off when running; each grey when it would
+ * do nothing. A press: the touch inside the button (through the calibration: none, no buttons)
+ * in two looks 50 ms apart, then a release before the next. A start from the panel keeps the
+ * watchdogs kicked until the supply is stopped (scope_panel_command), no page needed. The
+ * supply's state and the DC links on row 3.
  */
 #include <errno.h>
 #include <math.h>
@@ -37,14 +45,14 @@ LOG_MODULE_REGISTER(panel, LOG_LEVEL_INF);
 #define LINE_MAX_COLS 24
 #define ROWS          10
 
-#define ADDRESS_ROW  2
-#define TOUCH_ROW    4
-#define FIRMWARE_ROW 6
-#define FPGA_ROW     7
-#define STOP_ROW     8
-#define MESSAGE_ROW  9
 #define LINK_ROW     1
-#define LINES        7
+#define ADDRESS_ROW  2
+#define STATE_ROW    3
+#define TOUCH_ROW    4      /* a press's message instead for a while */
+#define FIRMWARE_ROW 5
+#define FPGA_ROW     6
+#define BUTTON_ROW   8      /* the buttons' labels; rows 7 and 9 kept clear under them */
+#define LINES        9
 
 /* the STOP button's area, pixels, as lcd_display's defaults */
 #define BUTTON_X0 330
@@ -52,6 +60,15 @@ LOG_MODULE_REGISTER(panel, LOG_LEVEL_INF);
 #define BUTTON_Y0 236
 #define BUTTON_Y1 309
 #define STOP_SHOWN_MS 5000
+
+/* START and OUTPUT (lcd_display's buttons 1 and 2), pixels; their labels' columns on BUTTON_ROW */
+static const uint32_t start_area[4] = {10, 159, 236, 309};
+static const uint32_t output_area[4] = {170, 319, 236, 309};
+#define GREY   0x404040
+#define GREEN  0x008000
+#define BLUE   0x0050C0
+#define ORANGE 0xC06000
+#define WHITE  0xFFFFFF
 
 #define CALIBRATION_FILE "/web/.touch_calibration"
 
@@ -90,7 +107,17 @@ static struct {
 
 static char shown[LINES][LINE_MAX_COLS + 1];
 static uint32_t presses_seen;
-static int64_t stop_shown_until;
+static char message[LINE_MAX_COLS + 1];    /* a press's, shown until message_until */
+static int64_t message_until;
+static uint32_t button_colours[2] = {~0u, ~0u};     /* as last written: none yet */
+
+/* the touch on the buttons: the one held, its looks, a release awaited */
+static struct {
+	int button;
+	int ticks;
+	bool released_awaited;
+	int untouched;
+} press = {.button = -1};
 
 static void panel_update(struct k_work *work);
 static K_WORK_DELAYABLE_DEFINE(panel_work, panel_update);
@@ -172,14 +199,45 @@ static void set_button_area(void)
 	LOG_INF("stop button: raw x %.0f..%.0f, y %.0f..%.0f", low[0], high[0], low[1], high[1]);
 }
 
+static void show_message(const char *text)
+{
+	snprintf(message, sizeof(message), "%s", text);
+	message_until = k_uptime_get() + STOP_SHOWN_MS;
+}
+
+/* START and OUTPUT as the supply's state allows; true when a colour changed */
+static bool show_buttons(const char *state, char *labels, size_t size)
+{
+	bool can_start = strcmp(state, "off") == 0 || strcmp(state, "stopped") == 0;
+	bool idle = strcmp(state, "idle") == 0;
+	bool running = strcmp(state, "running") == 0;
+	uint32_t colours[2] = {can_start ? GREEN : GREY, idle ? BLUE : running ? ORANGE : GREY};
+	bool changed = false;
+
+	snprintf(labels, size, "  START  %-7s  STOP", running ? "OUT OFF" : "OUTPUT");
+	if (!calibration.valid) {
+		return false;   /* no calibration: no buttons but STOP */
+	}
+	for (int b = 0; b < 2; b++) {
+		if (colours[b] != button_colours[b]) {
+			capture_lcd_button(b + 1, b == 0 ? start_area : output_area, WHITE, colours[b]);
+			button_colours[b] = colours[b];
+			changed = true;
+		}
+	}
+	return changed;
+}
+
 static void show_normal(void)
 {
 	uint32_t presses = capture_touch_presses();
 	char address[NET_IPV4_ADDR_LEN] = "...";
 	char text[LINE_MAX_COLS + 1];
+	char labels[LINE_MAX_COLS + 8];
 	struct net_in_addr *ip = net_if_ipv4_get_global_addr(net_if_get_default(), NET_ADDR_PREFERRED);
 	uint32_t touch[4];
 	uint32_t fpga = capture_fpga_version();
+	const char *state = scope_supply_state();
 	bool changed = false;
 	int x, y;
 
@@ -189,8 +247,20 @@ static void show_normal(void)
 	snprintf(text, sizeof(text), "IP %s", address);
 	changed |= normal_line(0, ADDRESS_ROW, text);
 
+	/* the supply: its state, the DC links */
+	snprintf(text, sizeof(text), "%-8s %5.1f/%5.1f V", state, capture_scaled(SCALER_PRI_VDC_IN),
+		 capture_scaled(SCALER_SEC_VDC_OUT));
+	changed |= normal_line(5, STATE_ROW, text);
+
+	if (presses != presses_seen) {
+		LOG_WRN("stopped by the face panel's STOP button");
+		show_message("stopped (panel)");
+		presses_seen = presses;
+	}
 	capture_touch_state(touch);
-	if (!touch[0]) {
+	if (k_uptime_get() < message_until) {
+		snprintf(text, sizeof(text), "%s", message);
+	} else if (!touch[0]) {
 		snprintf(text, sizeof(text), "touch -");
 	} else if (panel_touch_pixels(touch, &x, &y)) {
 		snprintf(text, sizeof(text), "touch %d %d", x, y);
@@ -204,14 +274,11 @@ static void show_normal(void)
 	snprintf(text, sizeof(text), "fpga %07x%s", fpga & 0x0fffffff, fpga & BIT(31) ? "+" : "");
 	changed |= normal_line(3, FPGA_ROW, text);
 
-	/* the button's label, in its columns 18..21; a press shown for a while below */
-	changed |= normal_line(4, STOP_ROW, "                  STOP");
-	if (presses != presses_seen) {
-		stop_shown_until = k_uptime_get() + STOP_SHOWN_MS;
-		LOG_WRN("stopped by the face panel's STOP button");
-		presses_seen = presses;
-	}
-	changed |= normal_line(5, MESSAGE_ROW, k_uptime_get() < stop_shown_until ? "stopped (panel)" : "");
+	/* the buttons' labels (STOP's in its columns 18..21), the rows above and below clear */
+	changed |= show_buttons(state, labels, sizeof(labels));
+	changed |= normal_line(4, BUTTON_ROW, labels);
+	changed |= normal_line(7, BUTTON_ROW - 1, "");
+	changed |= normal_line(8, BUTTON_ROW + 1, "");
 
 	/* the network, once a second */
 	static int64_t net_shown;
@@ -228,6 +295,56 @@ static void show_normal(void)
 
 	if (changed) {
 		capture_lcd_draw();
+	}
+}
+
+static bool inside(const uint32_t area[4], int x, int y)
+{
+	return x >= (int)area[0] && x <= (int)area[1] && y >= (int)area[2] && y <= (int)area[3];
+}
+
+/* every 50 ms: a press on START or OUTPUT (two looks inside, then a release before the next) */
+static void buttons_tick(void)
+{
+	uint32_t touch[4];
+	int x, y, button = -1;
+	const char *state;
+
+	capture_touch_state(touch);
+	if (touch[0] && panel_touch_pixels(touch, &x, &y)) {
+		button = inside(start_area, x, y) ? 0 : inside(output_area, x, y) ? 1 : -1;
+	}
+	if (press.released_awaited) {
+		/* lifted for 200 ms (the controller's touch flickers) */
+		press.untouched = touch[0] ? 0 : press.untouched + 1;
+		if (press.untouched >= LIFTED) {
+			press.released_awaited = false;
+		}
+		return;
+	}
+	if (button < 0 || button != press.button) {
+		press.button = button;
+		press.ticks = button < 0 ? 0 : 1;
+		return;
+	}
+	if (++press.ticks < 2) {
+		return;
+	}
+	press.released_awaited = true;
+	press.untouched = 0;
+	press.button = -1;
+	state = scope_supply_state();
+	if (button == 0) {
+		if (strcmp(state, "off") == 0 || strcmp(state, "stopped") == 0) {
+			scope_panel_command("supply_run");
+			show_message("start (panel)");
+		}
+	} else if (strcmp(state, "idle") == 0) {
+		scope_panel_command("output_on");
+		show_message("output on (panel)");
+	} else if (strcmp(state, "running") == 0) {
+		scope_panel_command("output_off");
+		show_message("output off (panel)");
 	}
 }
 
@@ -445,6 +562,7 @@ static void calibration_tick(void)
 	calibration.valid = true;
 	save_calibration();
 	set_button_area();
+	button_colours[0] = button_colours[1] = ~0u;     /* drawn again through the new calibration */
 	LOG_WRN("touch calibrated: %.5f %.5f %.1f / %.5f %.5f %.1f, error %.1f px", m[0], m[1], m[2],
 		m[3], m[4], m[5], error);
 	snprintf(line, sizeof(line), "calibrated: %.1f px", error);
@@ -494,8 +612,14 @@ static void panel_update(struct k_work *work)
 		clear_screen();
 		write_row(0, "ti60 AC PSU");
 	}
-	show_normal();
-	k_work_reschedule(k_work_delayable_from_work(work), K_MSEC(200));
+	/* the buttons looked at every 50 ms, the screen every 200 ms */
+	static uint32_t ticks;
+
+	buttons_tick();
+	if (ticks++ % 4 == 0) {
+		show_normal();
+	}
+	k_work_reschedule(k_work_delayable_from_work(work), K_MSEC(50));
 }
 
 void panel_start(void)

@@ -40,7 +40,7 @@ end entity scope_subsystem;
 
 architecture rtl of scope_subsystem is
 
-    constant scope_base : natural := 600;
+    constant scope_base : natural := work.fpga_registers_pkg.scope_registers.base;
 
     -- probes: add a signal with a line below and its entry in probe_table
     constant probe_count : natural := 26;
