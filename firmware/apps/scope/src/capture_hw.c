@@ -669,6 +669,16 @@ void capture_sequencer_power_off(void)
 	sys_write32(BIT(2), SEQUENCER_REGISTER(0));
 }
 
+void capture_sequencer_output_on(void)
+{
+	sys_write32(BIT(3), SEQUENCER_REGISTER(0));
+}
+
+void capture_sequencer_output_off(void)
+{
+	sys_write32(BIT(4), SEQUENCER_REGISTER(0));
+}
+
 uint32_t capture_sequencer_state(void)
 {
 	return sys_read32(SEQUENCER_REGISTER(0)) & 0xffff;

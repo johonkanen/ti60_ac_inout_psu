@@ -91,6 +91,11 @@ static struct scope_config config = {
 	.dhb_filter = 6,
 	/* the observer: the output filter as fitted to a measured step (output_filter_fit_tb),
 	 * 3 kHz for the current's error, 100 Hz for the voltage's (its readings are noisy) */
+	/* the boost to 100 V (the 100 V bench: its source ~95 V), the duty's ceiling, a stop under the
+	 * DHB's 120 V trip */
+	.boost_v_ref = 100.0,
+	.boost_d_max = 0.2,
+	.boost_limit = 115.0,
 	.observer = true,
 	.observer_l = 0.83e-3,
 	.observer_c = 18.0e-6,
@@ -392,6 +397,15 @@ static void apply_config(const char *message, bool with_gate_power)
 	if (json_number(message, "dhb_filter", &v)) {
 		config.dhb_filter = CLAMP((uint32_t)v, 0, 12);
 	}
+	if (json_number(message, "boost_v_ref", &v)) {
+		config.boost_v_ref = CLAMP(v, 0.0, 400.0);
+	}
+	if (json_number(message, "boost_d_max", &v)) {
+		config.boost_d_max = CLAMP(v, 0.0, 0.2);
+	}
+	if (json_number(message, "boost_limit", &v)) {
+		config.boost_limit = CLAMP(v, 0.0, 450.0);
+	}
 	if (json_number(message, "observer", &v)) {
 		config.observer = v != 0;
 	}
@@ -502,7 +516,8 @@ static int print_config(char *buf, size_t size)
 			    "\"control_voltage_zero\":%.3f,\"control_prefilter_hz\":%.1f,"
 			    "\"control_feedforward\":%.3f,"
 			    "\"control_du_hz\":%.2f,\"control_i_max\":%.2f,\"control_vl_max\":%.1f,"
-			    "\"control_u_max\":%.1f}",
+			    "\"control_u_max\":%.1f,\"boost_v_ref\":%.2f,\"boost_d_max\":%.4f,"
+			    "\"boost_limit\":%.1f}",
 			    config.adc_masks[0], config.adc_masks[1], config.adc_settle_ns[0],
 			    config.adc_settle_ns[1], config.sdm_log2, config.sdm_phase, config.gate_power,
 			    config.dhb_kp, config.dhb_ki, config.dhb_limit_high, config.dhb_limit_low,
@@ -513,7 +528,8 @@ static int print_config(char *buf, size_t size)
 			    config.control_current_hz, config.control_voltage_hz, config.control_b,
 			    config.control_voltage_zero, config.control_prefilter_hz,
 			    config.control_feedforward, config.control_du_hz, config.control_i_max,
-			    config.control_vl_max, config.control_u_max);
+			    config.control_vl_max, config.control_u_max, config.boost_v_ref,
+			    config.boost_d_max, config.boost_limit);
 }
 
 static int send_text(int sock, const char *text)
@@ -575,10 +591,12 @@ static void broadcast_config(void)
 
 /*
  * The supply's state, as the pages' banner shows it: starting (supply_sequencer.vhd bringing
- * up the supplies, the DHB and the output), off (the gate driver supplies off: a trip latched
- * then means nothing, the current modulators they power read nonsense), tripped (the DHB
- * protection's trip, until cleared), running (the DHB, the output bridge, armed or running, or
- * the input boost), idle (the supplies on, nothing switching).
+ * up the supplies, the input boost to its reference, then the DHB), idle (the boost and the DHB
+ * up, the output off: it can be switched on), running (the output on; or, outside the
+ * sequencer, a test running the DHB, the output or the boost), stopping, off (the gate driver
+ * supplies off: a trip latched then means nothing, the current modulators they power read
+ * nonsense), tripped (the DHB protection's trip, until cleared), stopped (the supplies on,
+ * nothing switching).
  */
 static const char *supply_state(void)
 {
@@ -589,6 +607,15 @@ static const char *supply_state(void)
 	if (step >= 1 && step <= 5) {
 		return "starting";
 	}
+	if (step == 6) {
+		return "idle";
+	}
+	if (step == 7 || step == 8) {
+		return "running";
+	}
+	if (step == 9) {
+		return "stopping";
+	}
 	if (capture_gate_power_on() == 0) {
 		return "off";
 	}
@@ -596,9 +623,9 @@ static const char *supply_state(void)
 		return "tripped";
 	}
 	if ((capture_dhb_status() & 3) != 0 || (capture_output_status() & 5) != 0 || (boost[0] & 1) != 0) {
-		return "running";
+		return "running";      /* a test's run, not the sequencer's */
 	}
-	return "idle";
+	return "stopped";
 }
 
 /* stop: everything switching stopped, the gate driver supplies left on: the sequencer's stop
@@ -636,18 +663,42 @@ static void supply_power_settled(struct k_work *work)
 }
 static K_WORK_DELAYABLE_DEFINE(power_settled_work, supply_power_settled);
 
-/* start: the DHB's voltage control on and the runs set up (the DHB's precharge and its run
- * after it, the output in closed loop on the loaded waveform until stop or its end; none
- * loaded: 0 V held), then supply_sequencer.vhd starts them in order: the gate driver supplies,
- * the DHB, the output. From off or idle; not when tripped (a trip latched while the supplies
- * were off the sequencer clears). */
+/* start: the input boost set up (config's boost_*), the DHB's voltage control on and its run
+ * set up (its precharge, then held running by the sequencer), then supply_sequencer.vhd brings
+ * them up in order: the gate driver supplies, the boost to its reference, the DHB: idle, the
+ * output off. From off or stopped; not when tripped (a trip latched while the supplies were off
+ * the sequencer clears). */
 #define SUPPLY_DHB_RUN_MS 100
 static void supply_run(void)
 {
 	const char *state = supply_state();
 
-	if (strcmp(state, "idle") != 0 && strcmp(state, "off") != 0) {
+	if (strcmp(state, "stopped") != 0 && strcmp(state, "off") != 0) {
 		LOG_WRN("start refused: the supply is %s", state);
+		return;
+	}
+	capture_boost_set(1, config.boost_v_ref);
+	capture_boost_set(7, config.boost_d_max);
+	capture_boost_set(8, config.boost_limit);
+	/* the DHB's voltage control on, as the waveform page requires it, with the gains kept */
+	config.dhb_control = true;
+	capture_set_dhb_control(config.dhb_control, config.dhb_kp, config.dhb_ki, config.dhb_limit_high,
+				config.dhb_limit_low);
+	capture_dhb_prepare(75000, 40, 124, SUPPLY_DHB_RUN_MS * 150, true);
+	/* the supplies stay on after the run: the enables as the sequencer holds them */
+	k_work_cancel_delayable(&power_off_work);
+	config.gate_power = 0x3f;
+	capture_set_gate_power(config.gate_power);
+	LOG_WRN("start: the gate driver supplies, the boost to %.1f V, then the DHB", config.boost_v_ref);
+	capture_sequencer_start();
+}
+
+/* the output on, from idle: in closed loop on the loaded waveform until output off, stop or its
+ * end (none loaded: 0 V held) */
+static void output_on(void)
+{
+	if (strcmp(supply_state(), "idle") != 0) {
+		LOG_WRN("output on refused: the supply is %s, not idle", supply_state());
 		return;
 	}
 	if (waveform_loaded == 0) {
@@ -657,18 +708,9 @@ static void supply_run(void)
 		capture_waveform_load(zero, hold, 1, 0);
 		waveform_loaded = 1;
 	}
-	/* the DHB's voltage control on, as the waveform page requires it, with the gains kept */
-	config.dhb_control = true;
-	capture_set_dhb_control(config.dhb_control, config.dhb_kp, config.dhb_ki, config.dhb_limit_high,
-				config.dhb_limit_low);
 	capture_output_waveform_prepare(0);
-	capture_dhb_prepare(75000, 40, 124, SUPPLY_DHB_RUN_MS * 150, true);
-	/* the supplies stay on after the run: the enables as the sequencer holds them */
-	k_work_cancel_delayable(&power_off_work);
-	config.gate_power = 0x3f;
-	capture_set_gate_power(config.gate_power);
-	LOG_WRN("start: the gate driver supplies, the DHB, then the output in closed loop");
-	capture_sequencer_start();
+	LOG_WRN("output on");
+	capture_sequencer_output_on();
 }
 
 static void supply_power(bool on)
@@ -992,6 +1034,11 @@ static void handle_command(const char *message)
 
 		json_number(message, "on", &on);
 		supply_power(on != 0);
+	} else if (json_string_is(message, "type", "output_on")) {
+		output_on();
+	} else if (json_string_is(message, "type", "output_off")) {
+		LOG_WRN("output off");
+		capture_sequencer_output_off();
 	} else if (json_string_is(message, "type", "supply_run")) {
 		supply_run();
 	} else if (json_string_is(message, "type", "supply_stop")) {

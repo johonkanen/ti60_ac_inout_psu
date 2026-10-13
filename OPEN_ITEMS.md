@@ -28,10 +28,21 @@ item when it is done; the commit that does it says so.
   link held at 60.01 / 63.00 V. Its readings are noisier then (the link 0.48 V rms against
   0.17 V, lines at 534 Hz and 1 kHz; the input's voltage 12.6 V rms against 5.5 V): leg 1's
   switching couples into the measurements more than leg 2's; in 5 ms means 0.13 V, the
-  control unaffected. The input current reads with the same sign either way. Next:
-  1. kp and ki doubled while the DHB runs (the doubled capacitance), if 3 Hz is too slow;
-  2. a peak current cutoff on the raw sigma-delta current is still missing; the duty cap is
+  control unaffected. The input current reads with the same sign either way.
+  With the DAB online (2026-10-13, boost_dab_step_test.py, one capture, -56 V in): the step
+  58 -> 60 V as with it off (90 % at 0.24 s either way, 0.13 V over instead of 0.07 V); the
+  DHB's control does not tie the secondary's capacitance to the primary rigidly, so the
+  doubling the model expects barely shows. Next:
+  1. a peak current cutoff on the raw sigma-delta current is still missing; the duty cap is
      the guard.
+- **The supply starts in the user's order (supply_sequencer.vhd, 2026-10-13):** the gate driver
+  supplies, the input boost to its reference (config boost_v_ref / boost_d_max / boost_limit,
+  the scope page's "Input boost at Start"; within 1 V for 50 ms, 3 s at most), then the DHB
+  (precharge, then held running): idle. The output on and off from idle (output_on /
+  output_off, the banner's Output button); stop, the panel's STOP, a trip, or the boost or the
+  DHB stopping by itself takes all of it down (why: 6 the boost not at its reference, 7 the
+  boost stopped, 8 the DHB stopped). On the board: Start to idle in 1.6 s at 58 V, the output
+  on and off, stop, power off.
 - iac_in's sign: a 1 MS/s capture shows the boost's current pulses as positive counts (the
   firmware calibrates +256 counts/A), while the polarity test (`input_polarity_test.py`, removed
   to make room in the FPGA: it is in the history up to 877ce86) reported its period mean
@@ -89,7 +100,8 @@ item when it is done; the commit that does it says so.
   (`{"type": "touch_calibrate"}`: four "+" targets, an affine fit kept in flash).
 - The STOP button works in the FPGA alone (touch_reader's area, lcd_display's red rectangle):
   the output brought down and stopped, the DHB after it, the input boost off.
-  Tested on the board in closed loop. Next: start buttons and a system state indicator.
+  Tested on the board in closed loop. Next: start buttons (Start to idle, Output on/off, as
+  the banner's) and a system state indicator.
 - Efinity numbers the bits of an unconstrained record field (the memory library's RAM output)
   the other way from the simulator: indexing a bit of it directly mirrored each character on
   the board while the testbench passed. Copy such a vector whole into a constrained one before

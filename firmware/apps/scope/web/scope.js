@@ -204,7 +204,8 @@ function buildAdcControls() {
   // the DHB's voltage control, on the boards with it
   $('dhb_control_section').hidden = !sourceNames.includes('dhb test');
   for (const id of ['dhb_kp', 'dhb_ki', 'dhb_limit_high', 'dhb_limit_low', 'dhb_control',
-                    'dhb_overcurrent', 'dhb_overvoltage', 'dhb_overvoltage_readings', 'dhb_filter']) {
+                    'dhb_overcurrent', 'dhb_overvoltage', 'dhb_overvoltage_readings', 'dhb_filter',
+                    'boost_v_ref', 'boost_d_max', 'boost_limit']) {
     $(id).addEventListener('change', () => sendConfig());
   }
   $('dhb_clear_trip').onclick = () => send({type: 'dhb_clear_trip'});
@@ -455,7 +456,7 @@ function showConfig(c) {
   if ($('sdm_log2') && c.sdm_log2) $('sdm_log2').value = c.sdm_log2;
   if ($('sdm_phase') && c.sdm_phase != null) $('sdm_phase').value = c.sdm_phase;
   for (const id of ['dhb_kp', 'dhb_ki', 'dhb_limit_high', 'dhb_limit_low', 'dhb_overcurrent', 'dhb_overvoltage',
-                    'dhb_overvoltage_readings', 'dhb_filter']) {
+                    'dhb_overvoltage_readings', 'dhb_filter', 'boost_v_ref', 'boost_d_max', 'boost_limit']) {
     if (c[id] != null) $(id).value = +c[id];
   }
   if (c.dhb_control != null) $('dhb_control').checked = !!c.dhb_control;
@@ -515,7 +516,9 @@ function sendConfig() {
                          dhb_overcurrent: +$('dhb_overcurrent').value,
                          dhb_overvoltage: +$('dhb_overvoltage').value,
                          dhb_overvoltage_readings: +$('dhb_overvoltage_readings').value,
-                         dhb_filter: +$('dhb_filter').value} : {}),
+                         dhb_filter: +$('dhb_filter').value,
+                         boost_v_ref: +$('boost_v_ref').value, boost_d_max: +$('boost_d_max').value,
+                         boost_limit: +$('boost_limit').value} : {}),
     ...($('observer_l') && !$('observer_section').hidden ? Object.fromEntries(OBSERVER_FIELDS.map(([id, scale]) =>
       [id, scale ? +$(id).value / scale : ($(id).checked ? 1 : 0)])) : {}),
     ...($('control_b') && !$('control_section').hidden ? Object.fromEntries(CONTROL_FIELDS.map(id =>

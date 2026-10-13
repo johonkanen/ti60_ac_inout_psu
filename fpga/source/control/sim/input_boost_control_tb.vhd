@@ -35,6 +35,7 @@ context vunit_lib.vunit_context;
 --   the_duty_at_most_0_2        d_max written 0.5: the duty at 0.2
 --   the_overvoltage_stop        +-3 V of noise, single readings over the stop: no stop; under it: stopped
 --   the_watchdog, a_trip_and_inhibit   each stops it at once
+--   the_sequencers_start_and_at_reference   start_in starts it; at_reference
 --   the_registers_defaults      the gains, the prefilter and the limits as reset
 entity input_boost_control_tb is
   generic (runner_cfg : string);
@@ -53,6 +54,8 @@ architecture vunit_simulation of input_boost_control_tb is
     signal scaled_channel : natural range 0 to scaler_channels - 1 := 0;
     signal trip, inhibit : boolean := false;
     signal running : boolean;
+    signal start_in : boolean := false;     -- supply_sequencer's start
+    signal at_reference : boolean;
     signal leg1, leg2 : dhb_leg_gates;
     signal probe : scope_sample;
 
@@ -89,7 +92,7 @@ begin
     dut : entity work.input_boost_control
     generic map(g_base_address => base)
     port map(clock, bus_in, bus_from_boost, scaled, scaled_ready, scaled_channel, trip, inhibit, running,
-             leg1, leg2, b_request, b_reset, b_v_sum, b_count, b_v_ref, b_ramp, b_d_half, b_kp, b_ki, b_alpha,
+             start_in, at_reference, leg1, leg2, b_request, b_reset, b_v_sum, b_count, b_v_ref, b_ramp, b_d_half, b_kp, b_ki, b_alpha,
              b_ready, b_duty, b_on_half, b_target, b_v, probe);
 
     core : entity work.output_control_processor
@@ -372,6 +375,31 @@ begin
                 wait for 100 ns;
                 check(not running, "no start while inhibited");
                 inhibit <= false;
+
+            elsif run("the_sequencers_start_and_at_reference") then
+                -- the link near the reference: started by start_in (no register), at the reference
+                -- once the reference has ramped (0.5 V/ms) and the link's mean is within 1 V; a new
+                -- reference away from it: no longer
+                v_start <= 104.6;
+                restart <= true;
+                wait until rising_edge(clock);
+                restart <= false;
+                wait for 60 us;      -- a whole period's readings of it
+                check(not at_reference, "stopped: not at the reference");
+                start_in <= true;
+                wait until rising_edge(clock);
+                start_in <= false;
+                wait for 3 ms;
+                check(running, "started by start_in");
+                bus_read(base + 11, status);
+                info("the reference as ramped " & real'image(real(status) / 2.0**20));
+                bus_read(base + 17, status);
+                info("the link's mean " & real'image(real(status) / 2.0**20));
+                check(at_reference, "at the reference");
+                bus_write(base + 1, to_fixed(110.0));
+                wait for 200 us;
+                check(not at_reference, "a reference 5 V away: not at it");
+                check_steps(110);
 
             elsif run("the_registers_defaults") then
                 bus_read(base + 1, status);

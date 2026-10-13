@@ -112,6 +112,11 @@ package body input_boost_plant_pkg is
             -- the link under the source: the inductor's current flows on (CCM through the diodes)
             interval := into_link;
             rk4(t_on, s, t_off);
+        elsif s(0) <= 0.0 then
+            -- no current and the link above the source: the diodes block the whole interval
+            s(0) := 0.0;
+            interval := blocked;
+            rk4(t_on, s, t_off);
         elsif t_zero >= t_off then
             interval := into_link;
             rk4(t_on, s, t_off);

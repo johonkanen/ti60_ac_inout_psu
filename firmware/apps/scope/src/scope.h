@@ -82,6 +82,9 @@ struct scope_config {
 	 * of its slope fed forward as the capacitor's current (0..1) */
 	double control_prefilter_hz, control_feedforward;
 	double control_i_max, control_vl_max, control_u_max;
+	/* the input boost as the supply's start runs it (input_boost_control.vhd): the primary DC
+	 * link's reference (V), the duty's limit (at most 0.2) and the overvoltage stop (V) */
+	double boost_v_ref, boost_d_max, boost_limit;
 };
 
 struct scope_capture {
@@ -256,6 +259,8 @@ void capture_dhb_prepare(uint32_t periods, uint32_t pulse_clocks, uint32_t ramp_
 void capture_sequencer_start(void);
 void capture_sequencer_stop(void);
 void capture_sequencer_power_off(void);
+void capture_sequencer_output_on(void);    /* from idle: the output bridge armed */
+void capture_sequencer_output_off(void);   /* the output alone stopped, back to idle */
 uint32_t capture_sequencer_state(void);
 /* the input bridge as a boost converter (input_boost_control.vhd, registers at 1260; its voltage
  * PI to the duty on the output control's core): a setting by its register (1 v_ref, 2 kp duty/V,

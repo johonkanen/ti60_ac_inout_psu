@@ -175,6 +175,13 @@
       </div>
     </section>
     <section id="dhb_control_section" hidden>
+      <h2>Input boost at Start</h2>
+      <p class="note">Start brings the primary DC link up with the input boost first, to this
+        reference, then starts the DAB. The duty at most 0.2 (the FPGA's ceiling); the boost stops
+        at the overvoltage, the DAB's own trip the backup.</p>
+      <label>Reference (V) <input id="boost_v_ref" type="number" step="1" min="0" max="400"></label>
+      <label>Duty limit <input id="boost_d_max" type="number" step="0.01" min="0" max="0.2"></label>
+      <label>Overvoltage stop (V) <input id="boost_limit" type="number" step="5" min="0" max="450"></label>
       <h2>DAB voltage control</h2>
       <p class="note">A PI on the scaled DC links: the secondary's voltage to the primary's. Its
         command, -1.0 .. 1.0 within the limits, is the phase shift, 1.0 a quarter period (333

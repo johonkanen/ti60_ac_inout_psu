@@ -217,6 +217,7 @@ architecture rtl of tsemac_soc_top is
     signal touch_stop           : boolean;
     signal bus_from_sequencer   : fpga_interconnect_record := init_fpga_interconnect;
     signal seq_gates_on, gates_all_on, seq_clear_trip, seq_dhb_start, seq_output_arm, seq_stop : boolean;
+    signal seq_boost_start, seq_dhb_hold, seq_output_stop, boost_at_reference : boolean;
     signal panel_count          : natural range 0 to panel_hold_clocks := 0;
     signal boost_inhibit        : boolean;
     signal waveform_ref         : fixed_number;
@@ -527,7 +528,7 @@ begin
         ,phase         => dhb_phase_command
         ,trip          => dhb_trip
         ,bridge_running => dhb_running
-        ,hold          => output_active   -- on while the output bridge runs
+        ,hold          => seq_dhb_hold or output_active   -- on while the supply is up, the output bridge runs
         ,stop_in       => panel_stop_dhb
         ,start_in      => seq_dhb_start
         ,primary_voltage   => pri_positions(1)   -- vdc_in
@@ -563,7 +564,7 @@ begin
         ,waveform_start    => waveform_start
         ,waveform_step     => waveform_step
         ,probe   => output_probe
-        ,stop_in => panel_stop
+        ,stop_in => panel_stop or seq_output_stop
         ,arm_in  => seq_output_arm
     );
 
@@ -582,6 +583,8 @@ begin
         ,trip           => dhb_trip
         ,inhibit        => boost_inhibit
         ,running_out    => boost_running
+        ,start_in       => seq_boost_start
+        ,at_reference   => boost_at_reference
         ,leg1           => boost_leg1
         ,leg2           => boost_leg2
         ,request        => boost_request
@@ -653,7 +656,8 @@ begin
     );
 
     -- the supply's start and stop in order (supply_sequencer.vhd, registers at 1340..): the
-    -- gate driver supplies, then the DHB, then the output; its stop the panel's
+    -- gate driver supplies, the input boost to its reference, then the DHB (held running), idle;
+    -- the output on and off from there; its stop the panel's
     u_sequencer : entity work.supply_sequencer
     generic map(g_base_address => 1340)
     port map(
@@ -662,14 +666,19 @@ begin
         ,bus_out        => bus_from_sequencer
         ,trip           => dhb_trip
         ,gates_all_on   => gates_all_on
+        ,boost_running  => boost_running
+        ,boost_at_reference => boost_at_reference
         ,dhb_running    => dhb_running
         ,output_running => output_running
         ,output_active  => output_active
         ,stop_in        => touch_stop
         ,gates_on       => seq_gates_on
         ,clear_trip     => seq_clear_trip
+        ,boost_start    => seq_boost_start
         ,dhb_start      => seq_dhb_start
+        ,dhb_hold       => seq_dhb_hold
         ,output_arm     => seq_output_arm
+        ,output_stop    => seq_output_stop
         ,stop_out       => seq_stop
     );
     panel_stop <= touch_stop or seq_stop;

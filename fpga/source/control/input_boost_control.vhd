@@ -91,6 +91,11 @@ entity input_boost_control is
         trip           : in boolean;
         inhibit        : in boolean;      -- the face panel's STOP: no boost meanwhile
         running_out    : out boolean;
+        -- supply_sequencer's: a start (a clock's pulse, as register 0's bit0), and the link at
+        -- the reference (running, the reference ramped to v_ref, the link's period mean within
+        -- 1 V of it)
+        start_in       : in boolean := false;
+        at_reference   : out boolean;
         leg1           : out dhb_leg_gates;
         leg2           : out dhb_leg_gates;
         -- to output_control_processor's boost inputs, held until the next request
@@ -110,7 +115,8 @@ entity input_boost_control is
         on_half        : in fixed_number;
         target_in      : in fixed_number;
         v_mean_in      : in fixed_number;
-        -- scope lanes: 4 running, 5 the switch on, 6 leg 1 switching (the input reversed)
+        -- scope lanes: 4 running, 5 the switch on, 6 leg 1 switching (the input reversed; only
+        -- while running, so the lanes rise from 0 at a start)
         probe          : out scope_sample
     );
 end entity input_boost_control;
@@ -176,6 +182,8 @@ architecture rtl of input_boost_control is
 begin
 
     running_out <= running;
+    at_reference <= running and not first and abs(target - signed(v_ref_r)) < to_fixed(0.01)
+                    and abs(v_mean - signed(v_ref_r)) < to_fixed(1.0);
     v_sum   <= period_sum;
     v_count <= period_count;
     v_ref   <= signed(v_ref_r);
@@ -298,7 +306,7 @@ begin
                 running   <= false;
                 gate_on   <= false;
                 on_clocks <= 0;
-            elsif write_is_requested_to_address(bus_in, g_base_address) and get_slv_data(bus_in)(0) = '1'
+            elsif ((write_is_requested_to_address(bus_in, g_base_address) and get_slv_data(bus_in)(0) = '1') or start_in)
                   and not running and not trip and not inhibit then
                 running   <= true;
                 first     <= true;
@@ -323,7 +331,7 @@ begin
                 end if;
             end if;
 
-            probe <= x"00" & '0' & bit_of(reversed) & bit_of(gate_on and running) & bit_of(running) & x"0";
+            probe <= x"00" & '0' & bit_of(reversed and running) & bit_of(gate_on and running) & bit_of(running) & x"0";
         end if;
     end process;
 

@@ -348,6 +348,14 @@ void capture_sequencer_power_off(void)
 {
 }
 
+void capture_sequencer_output_on(void)
+{
+}
+
+void capture_sequencer_output_off(void)
+{
+}
+
 uint32_t capture_sequencer_state(void)
 {
 	return 0;
