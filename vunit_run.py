@@ -21,8 +21,11 @@ lib.add_source_files(comm / "fpga_interconnect_16bit_pkg.vhd")
 lib.add_source_files(root / "source" / "ethernet" / "*.vhd")
 lib.add_source_files(root / "source" / "ethernet" / "sim" / "*.vhd")
 lib.add_source_files(root / "source" / "hyperram" / "*.vhd")
-lib.add_source_files(root / "source" / "scope" / "*.vhd")
-lib.add_source_files(root / "source" / "scope" / "sim" / "*.vhd", allow_empty=True)
+# the oscilloscope (fpga_scope): its sources and testbenches, on this project's register bus
+# and memory library
+scope = root / "source" / "fpga_scope"
+lib.add_source_files(scope / "source" / "*.vhd")
+lib.add_source_files(scope / "testbench" / "*_tb.vhd")
 lib.add_source_files(root / "source" / "hyperram" / "sim" / "*.vhd")
 lib.add_source_files(root / "source" / "adc" / "*.vhd")
 lib.add_source_files(root / "source" / "adc" / "sim" / "*.vhd")
@@ -38,6 +41,7 @@ memory_library = root / "source" / "hVHDL_memory_library"
 memory = memory_library / "vhdl2008"
 lib.add_source_files(memory / "dp_ram_w_configurable_records.vhd")
 lib.add_source_files(memory / "arch_rtl_dp_ram_w_configurable_records.vhd")
+lib.add_source_files(memory / "sdp_ram_w_configurable_records.vhd")
 lib.add_source_files(memory / "mpram_w_configurable_records.vhd")
 # the HyperRAM controller, its package and the memory's model
 lib.add_source_files(memory_library / "hyperram" / "*.vhd")

@@ -134,7 +134,8 @@ Efinix's IP cores in `sapphire_subsystem.vhd` (the SoC, the scope's DMA, and in
 inserter), our HyperRAM controller (`hyperram_axi` from hVHDL_memory_library) as the SoC's
 main memory, a register bus for the CPU (scope at register 600, ADCs at 700 and 720, sigma-delta
 at 740, gate supplies at 760, the DHB at 780 and 1100, the output bridge at 1140, its observer
-at 1160 and control at 1180, remote update at 800), the oscilloscope, the measurements and
+at 1160 and control at 1180, remote update at 800), the oscilloscope (the
+[fpga_scope](https://github.com/johonkanen/fpga_scope) submodule), the measurements and
 controls above, and the internal reconfiguration that switches between the golden and
 application images. The IPs' configuration started from Efinix's Ti60F225 TSEMAC example
 design's.

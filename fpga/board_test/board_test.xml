@@ -47,10 +47,12 @@
         <efx:design_file name="../source/ethernet/ethernet_stack.vhd" version="default" library="default" />
         <efx:design_file name="../source/ethernet/ethernet_phy_init.vhd" version="default" library="default" />
         <efx:design_file name="../source/ethernet/ethernet.vhd" version="default" library="default" />
-        <efx:design_file name="../source/scope/scope_pkg.vhd" version="default" library="default" />
-        <efx:design_file name="../source/scope/sine_table_pkg.vhd" version="default" library="default" />
-        <efx:design_file name="../source/scope/test_signal_generator.vhd" version="default" library="default" />
-        <efx:design_file name="../source/scope/scope_capture.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_memory_library/vhdl2008/dp_ram_w_configurable_records.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_memory_library/vhdl2008/sdp_ram_w_configurable_records.vhd" version="default" library="default" />
+        <efx:design_file name="../source/fpga_scope/source/scope_pkg.vhd" version="default" library="default" />
+        <efx:design_file name="../source/fpga_scope/source/sine_table_pkg.vhd" version="default" library="default" />
+        <efx:design_file name="../source/fpga_scope/source/test_signal_generator.vhd" version="default" library="default" />
+        <efx:design_file name="../source/fpga_scope/source/scope_capture.vhd" version="default" library="default" />
         <efx:design_file name="../source/adc/ads7056.vhd" version="default" library="default" />
         <efx:design_file name="../source/adc/board_adc.vhd" version="default" library="default" />
         <efx:design_file name="board_test_top.vhd" version="default" library="default" />

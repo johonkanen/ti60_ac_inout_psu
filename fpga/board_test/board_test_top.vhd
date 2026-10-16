@@ -14,7 +14,7 @@ library ieee;
 -- The register bus is also reachable over UDP port 5001 with the UART command encoding;
 -- bus_arbiter shares it between the UART and the UDP bridge.
 -- the PHY is configured by ethernet_phy_init after power up, gigabit only
---   address 600 : oscilloscope capture, see source/scope/scope_capture.vhd, read out
+--   address 600 : oscilloscope capture, see source/fpga_scope/source/scope_capture.vhd, read out
 --                 over UDP port 5002 (see source/ethernet/udp_stream_pkg.vhd)
 --   address 700 : ADS7056 behind the 8 input analog mux, see source/adc/board_adc.vhd
 -- main_clock is 125 MHz

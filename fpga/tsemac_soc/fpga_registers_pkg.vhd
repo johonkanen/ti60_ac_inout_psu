@@ -5,7 +5,7 @@
 -- block's register map is in the comment of the file named.
 --
 --   address      registers  block                       its register map
---   600..622        23      the scope                   source/scope/scope_capture.vhd
+--   600..622        23      the scope                   fpga_scope/source/scope_capture.vhd
 --   700..716        17      board ADC, secondary side   source/adc/board_adc.vhd
 --   720..736        17      board ADC, primary side     source/adc/board_adc.vhd
 --   740..759        20      sigma-delta currents        source/adc/sdm_adc.vhd

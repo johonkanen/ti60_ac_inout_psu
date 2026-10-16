@@ -238,8 +238,8 @@ More than 62.5 MB/s needs fewer bytes through the HyperRAM:
 | Part | File |
 |---|---|
 | HyperRAM core / AXI3 slave | `fpga/source/hVHDL_memory_library/hyperram/hyperram_core.vhd`, `hyperram_axi.vhd` |
-| Scope capture | `fpga/source/scope/scope_capture.vhd` |
-| Capture to AXI stream | `fpga/tsemac_soc/scope/scope_axis_writer.vhd`, `scope_subsystem.vhd` |
+| Scope capture | `fpga/source/fpga_scope/source/scope_capture.vhd` (submodule fpga_scope) |
+| Capture to AXI stream | `fpga/source/fpga_scope/source/scope_axis_writer.vhd`, `fpga/tsemac_soc/scope/scope_subsystem.vhd` |
 | Checksum inserter | `fpga/tsemac_soc/ethernet/tx_checksum_inserter.vhd` |
 | SoC wiring (DMAs, DDR ports) | `fpga/tsemac_soc/sapphire_subsystem.vhd` |
 | Driver fast path | `firmware/module/drivers/ethernet/eth_efinix_tsemac.c`, `module/include/eth_efinix_tsemac.h` |

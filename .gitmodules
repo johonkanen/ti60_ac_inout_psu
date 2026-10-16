@@ -13,3 +13,6 @@
 [submodule "fpga/source/hVHDL_memory_library"]
 	path = fpga/source/hVHDL_memory_library
 	url = https://github.com/hVHDL/hVHDL_memory_library.git
+[submodule "fpga/source/fpga_scope"]
+	path = fpga/source/fpga_scope
+	url = https://github.com/johonkanen/fpga_scope

@@ -5,7 +5,7 @@ library ieee;
     use work.fpga_interconnect_pkg.all;
     use work.scope_pkg.all;
 
--- The oscilloscope of board_test (source/scope) for the SoC of sapphire_subsystem:
+-- The oscilloscope (source/fpga_scope) for the SoC of sapphire_subsystem:
 --   a slave of the register bus at its board_test addresses, 600..
 --   the deep capture streams into the scope DMA (scope_axis_writer), which writes a
 --   circular buffer in the HyperRAM that the CPU owns

@@ -9,19 +9,19 @@
         <efx:design_file name="../source/fpga_communication/hVHDL_fpga_interconnect/fpga_interconnect_generic_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/fpga_communication/fpga_interconnect_16bit_pkg.vhd" version="default" library="default" />
         <efx:design_file name="fpga_registers_pkg.vhd" version="default" library="default" />
-        <efx:design_file name="../source/hyperram/sync_fifo.vhd" version="default" library="default" />
-        <efx:design_file name="../source/scope/scope_pkg.vhd" version="default" library="default" />
-        <efx:design_file name="../source/scope/sine_table_pkg.vhd" version="default" library="default" />
-        <efx:design_file name="../source/scope/test_signal_generator.vhd" version="default" library="default" />
-        <efx:design_file name="../source/scope/scope_capture.vhd" version="default" library="default" />
+        <efx:design_file name="../source/fpga_scope/source/scope_pkg.vhd" version="default" library="default" />
+        <efx:design_file name="../source/fpga_scope/source/sine_table_pkg.vhd" version="default" library="default" />
+        <efx:design_file name="../source/fpga_scope/source/test_signal_generator.vhd" version="default" library="default" />
+        <efx:design_file name="../source/fpga_scope/source/scope_capture.vhd" version="default" library="default" />
         <efx:design_file name="../source/hyperram/async_fifo.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_memory_library/hyperram/hyperram_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/adc/ads7056.vhd" version="default" library="default" />
         <efx:design_file name="../source/adc/board_adc.vhd" version="default" library="default" />
         <efx:design_file name="../source/inverter/output_bridge_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/adc/sdm_adc.vhd" version="default" library="default" />
-        <efx:design_file name="scope/apb_bus_bridge.vhd" version="default" library="default" />
-        <efx:design_file name="scope/scope_axis_writer.vhd" version="default" library="default" />
+        <efx:design_file name="../source/fpga_scope/source/apb_bus_bridge.vhd" version="default" library="default" />
+        <efx:design_file name="../source/fpga_scope/source/scope_fifo.vhd" version="default" library="default" />
+        <efx:design_file name="../source/fpga_scope/source/scope_axis_writer.vhd" version="default" library="default" />
         <efx:design_file name="scope/scope_subsystem.vhd" version="default" library="default" />
         <efx:design_file name="ethernet/tx_checksum_inserter.vhd" version="default" library="default" />
         <efx:design_file name="ethernet/tsemac_control.vhd" version="default" library="default" />
@@ -32,6 +32,7 @@
         <efx:design_file name="../source/hVHDL_fixed_point/fixed_dsp/arch_rtl_fixed_dsp.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_memory_library/vhdl2008/dp_ram_w_configurable_records.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_memory_library/vhdl2008/arch_rtl_dp_ram_w_configurable_records.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_memory_library/vhdl2008/sdp_ram_w_configurable_records.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_memory_library/hyperram/hyperram_core.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_memory_library/hyperram/hyperram_axi.vhd" version="default" library="default" />
         <efx:design_file name="sapphire_subsystem.vhd" version="default" library="default" />
