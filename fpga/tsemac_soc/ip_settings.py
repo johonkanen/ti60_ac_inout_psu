@@ -1,5 +1,5 @@
 # The IP Manager parameters of tsemac_soc's IPs before gen_ips.py's board overrides: the
-# RISC-V SoC, the HyperRAM controller, the Ethernet MAC, the scatter-gather DMA (used twice:
+# RISC-V SoC, the Ethernet MAC, the scatter-gather DMA (used twice:
 # the MAC's and the scope's) and the APB to AXI4-Lite bridge of the MAC's registers. The
 # values follow the Ti60F225 TSEMAC Linux example design's configuration of these IPs;
 # gen_ips.py changes what this board needs. Keys are the IPs' parameter names, values as the
@@ -161,48 +161,6 @@ ip_settings = {
             "WDT0_M_Addr": "32'd73728",
             "WDT0_PS_WIDTH": "24",
             "WDT0_TIMER_WIDTH": "16",
-        },
-    },
-    "hyperram": {
-        "vendor": "efinixinc.com", "library": "memory_controller", "name": "efx_hyper_ram", "version": "6.12",
-        "conf": {
-            "AXI_AWR_DEPTH": "16",
-            "AXI_DBW_2": "64",
-            "AXI_IF": "1'b1",
-            "AXI_R_DEPTH_2": "256",
-            "AXI_W_DEPTH_2": "256",
-            "CAL_CLK_CH": "4",
-            "CAL_CLK_CH_HI": "8",
-            "CAL_CLK_CH_LO": "4",
-            "CAL_MODE": "2",
-            "CAL_SCHEME": "2",
-            "CFG_REG_RW": "0",
-            "CR0_DPD": "1'b1",
-            "CR0_HBE": "1'b1",
-            "CR0_ILC": "2",
-            "CR0_ODS": "0",
-            "CR0_WBL": "3",
-            "CR1_HSE": "1'b0",
-            "CR1_MCT": "1'b1",
-            "CR1_PAR": "0",
-            "DDIN_MODE": "1'b0",
-            "DQ_FILTER": "1",
-            "DUAL_RAM": "0",
-            "DUAL_RAM_enable": "0",
-            "INDIVI_DUAL_CAL": "0",
-            "MHZ": "200",
-            "NATIVE_DBW": "32",
-            "NATIVE_R_DEPTH": "256",
-            "NATIVE_W_DEPTH": "256",
-            "ON_DEMAND_CAL": "0",
-            "PERIODIC_CAL": "0",
-            "PRD_CAL_USER_SIGNAL": "0",
-            "RAM_ABW": "25",
-            "RAM_DBW": "16",
-            "RECAL_DAYS": "7",
-            "RECAL_HOURS": "23",
-            "RWDS_OUT_MODE": "0",
-            "TIMER_RESET": "1",
         },
     },
     "tsemac": {

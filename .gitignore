@@ -5,3 +5,5 @@ fpga/source/inverter/sim/data/output_filter_fit.csv
 fpga/source/inverter/sim/data/output_filter_fit.png
 fpga/source/inverter/sim/data/output_observer_replay.csv
 fpga/source/inverter/sim/data/output_voltage_control.csv
+# captures the scope's test scripts save (input_boost_test.py, supply_raise_test.py, ...)
+firmware/apps/scope/*.npy

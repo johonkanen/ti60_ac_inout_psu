@@ -5,7 +5,8 @@ generator (the hardware is designed for 400 V, 450 V at most), and its control b
 Efinix Titanium Ti60F225 FPGA with a
 Sapphire RISC-V SoC running Zephyr, HyperRAM, Gigabit Ethernet, two ADS7056 ADCs behind
 analog muxes, and the power stage's gate drives. The board serves a web page with an
-oscilloscope, a data collection page that streams the FPGA's capture at up to 62 MB/s, and an
+oscilloscope, a data collection page that streams the FPGA's capture at up to 62.5 MB/s
+([docs/data_stream.md](docs/data_stream.md) tells how), and an
 update page that installs firmware, web pages and FPGA images over the network, so JTAG is
 needed only once, to put the golden FPGA image in the flash.
 
@@ -48,8 +49,8 @@ ti60_ac_inout_psu/setup.sh
 FPGA, in `fpga/tsemac_soc`:
 
 ```
-./build.sh ips          # Efinix's IP cores (Sapphire, TSEMAC, DMA, HyperRAM): once
-./build.sh all          # both images at once (about two minutes), then images/flash.hex
+./build.sh ips          # Efinix's IP cores (Sapphire, TSEMAC, DMAs, APB bridge): once, about 8 minutes
+./build.sh all          # both images at once (about 4 minutes), then images/flash.hex
                         # and images/application_update.bin
 ```
 
@@ -128,9 +129,10 @@ streamed through a DMA into the HyperRAM), the data collection page and the upda
 ## FPGA
 
 `fpga/tsemac_soc` is the design the board runs, with a VHDL top level (`tsemac_soc_top.vhd`):
-Efinix's IP cores in `sapphire_subsystem.vhd` (the SoC, the HyperRAM controller, and in
+Efinix's IP cores in `sapphire_subsystem.vhd` (the SoC, the scope's DMA, and in
 `ethernet/ethernet_subsystem.vhd` the Ethernet MAC and its DMA, with a transmit checksum
-inserter), a register bus for the CPU (scope at register 600, ADCs at 700 and 720, sigma-delta
+inserter), our HyperRAM controller (`hyperram_axi` from hVHDL_memory_library) as the SoC's
+main memory, a register bus for the CPU (scope at register 600, ADCs at 700 and 720, sigma-delta
 at 740, gate supplies at 760, the DHB at 780 and 1100, the output bridge at 1140, its observer
 at 1160 and control at 1180, remote update at 800), the oscilloscope, the measurements and
 controls above, and the internal reconfiguration that switches between the golden and
@@ -141,7 +143,7 @@ design's.
 
 MIT (`LICENSE`); `firmware/apps/scope/web/uPlot.iife.min.js` is uPlot's, MIT
 (`LICENSE.uPlot`). The FPGA designs use Efinix's IP cores (the Sapphire RISC-V SoC, the
-Triple Speed Ethernet MAC, the DMA, the HyperRAM controller, the APB to AXI4-Lite bridge),
+Triple Speed Ethernet MAC, the DMA, the APB to AXI4-Lite bridge),
 which are not here: `fpga/tsemac_soc/gen_ips.py` generates them with Efinity's IP Manager
 from the parameters in `ip_settings.py`, under Efinix's licence for them. The Ti60F225 kit
 (`ti60_evm*` boards, `firmware/fpga/ti60_evm_eth/`) runs Efinix's TSEMAC Linux example

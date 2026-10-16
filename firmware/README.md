@@ -103,6 +103,10 @@ failed or interrupted update leaves the old image booting. `GET /update` shows t
 
 ## Status
 
+The Zephyr changes behind quick page changes and several clients at once are in
+[../docs/zephyr_web_connections.md](../docs/zephyr_web_connections.md), the fast stream in
+[../docs/data_stream.md](../docs/data_stream.md).
+
 Working and tested on the kit:
 
 - Ethernet at 1000 Mb/s with DHCP.
