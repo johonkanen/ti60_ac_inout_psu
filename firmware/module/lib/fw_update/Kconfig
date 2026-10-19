@@ -28,10 +28,15 @@ config FW_UPDATE_FPGA
 	  from it; at boot the golden image switches to it. No JTAG needed.
 
 config FW_UPDATE_FPGA_CONFIRM_S
-	int "Seconds an application image runs before it counts as working"
+	int "Seconds an application image runs, with the network up, before it counts as working"
 	default 10
 	depends on FW_UPDATE_FPGA
 	help
-	  Until then a power cycle leaves the board on the golden image.
+	  Counted from the first request served (fpga_update_network_works):
+	  the image's network works. Then the
+	  FPGA's fallback timer is stopped (the application image reloads the
+	  golden one by itself, 120 s after it starts, unless stopped) and the
+	  image is confirmed. Until then a power cycle leaves the board on the
+	  golden image.
 
 endif

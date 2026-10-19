@@ -262,7 +262,9 @@ architecture rtl of tsemac_soc_top is
 begin
 
 ------------------------------------------------------------------------
+    -- the application image on our ethernet_mac, the golden one still on Efinix's TSEMAC
     u_sapphire : entity work.sapphire_subsystem
+    generic map(g_own_ethernet_mac => image_role = 1)
     port map(
         pll_locked         => pll_locked
         ,ram_clk           => ram_clk
@@ -368,9 +370,11 @@ begin
                        and bus_from_sequencer;
 ------------------------------------------------------------------------
     -- the golden or application image (image_role_pkg, written by build.sh), and switching
-    -- between them, registers at 800..
+    -- between them, registers at 800..; the application image goes back to the golden one
+    -- unless the firmware stops its fallback timer within 120 s (once the network is up)
     u_remote_update : entity work.remote_update
-    generic map(g_base_address => remote_update_registers.base, g_role => image_role)
+    generic map(g_base_address => remote_update_registers.base, g_role => image_role
+                , g_fallback_seconds => 120 * image_role, g_clock_frequency => 125_000_000)
     port map(
         clock       => io_tseClk
         ,bus_in     => bus_to_slaves

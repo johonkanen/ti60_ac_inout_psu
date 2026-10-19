@@ -13,7 +13,12 @@
  * confirmed, or has never been tried (then it is marked tried first). It stays golden if the
  * application image was tried but never confirmed (it hung: the board was power cycled) or
  * if the FPGA fell back to golden after the application image failed its CRC. The
- * application image confirms itself once Zephyr has run for CONFIG_FW_UPDATE_FPGA_CONFIRM_S.
+ * application image confirms itself CONFIG_FW_UPDATE_FPGA_CONFIRM_S after its network has
+ * worked (fpga_update_network_works: a request served, GET /update or the application's own),
+ * and stops the FPGA's fallback timer then: unless stopped,
+ * the application image reloads the golden image 120 s after it started (remote_update.vhd),
+ * which then stays (tried, never confirmed). No JTAG or power cycle is needed to get a board
+ * with a broken image back.
  *
  * After a fallback the FPGA loads no other image until it is powered off (its error flag
  * stays set, even through a reload of the golden image): an image installed then waits,
@@ -49,6 +54,12 @@ bool fpga_update_fell_back(void);
  * an error logged, only if the FPGA did not reload.
  */
 void fpga_update_switch(void);
+
+/*
+ * The network works: a request has been served. Confirms the application image a while later
+ * (see above); GET /update calls it, an application calls it on its own requests.
+ */
+void fpga_update_network_works(void);
 
 /* the role, fallback and application image as JSON, for GET /update; returns its length */
 int fpga_update_status(char *buf, size_t size);

@@ -103,6 +103,13 @@ pattern_test.add_config(name="stuck_dq3", generics=dict(stuck_dq_bit=3))
 loopback_tb = lib.test_bench("ethernet_loopback_tb")
 loopback_tb.add_config(name="rx_lo_aligned", generics=dict(rx_lo_lags=False))
 loopback_tb.add_config(name="rx_lo_lags", generics=dict(rx_lo_lags=True))
+update_tb = lib.test_bench("remote_update_tb")
+update_tb.test("commands_reconfigure").add_config(name="no_fallback", generics=dict(fallback_seconds=0))
+for test in ("the_fallback_timer_stopped_in_time_does_nothing", "the_fallback_timer_not_stopped_reloads_the_golden_image"):
+    update_tb.test(test).add_config(name="fallback_5", generics=dict(fallback_seconds=5))
+mac_tb = lib.test_bench("ethernet_mac_tb")
+mac_tb.add_config(name="rx_lo_aligned", generics=dict(rx_lo_lags=False))
+mac_tb.add_config(name="rx_lo_lags", generics=dict(rx_lo_lags=True))
 
 ddr_tb = lib.test_bench("hyperram_ddr_controller_tb")
 for tckd in (1.5, 3.0, 4.5):

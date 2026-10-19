@@ -14,6 +14,7 @@
 #include <zephyr/sys/reboot.h>
 #include <zephyr/logging/log_ctrl.h>
 #include <fw_update.h>
+#include <fpga_update.h>
 #include <http_files.h>
 #include "scope.h"
 
@@ -139,6 +140,10 @@ static int ws_setup(int ws_socket, struct http_request_ctx *request_ctx, void *u
 	ARG_UNUSED(request_ctx);
 	ARG_UNUSED(user_data);
 
+	/* a page connected: the network works, see fpga_update.h */
+	if (IS_ENABLED(CONFIG_FW_UPDATE_FPGA)) {
+		fpga_update_network_works();
+	}
 	return scope_client_add(ws_socket);
 }
 

@@ -9,6 +9,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/logging/log_ctrl.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/storage/flash_map.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/crc.h>
@@ -25,6 +26,9 @@ LOG_MODULE_REGISTER(fpga_update, LOG_LEVEL_INF);
 #define REG_ROLE        0
 #define REG_STATUS      1
 #define REG_RECONFIGURE 2
+#define REG_FALLBACK    3
+#define FALLBACK_ARMED  BIT(0)
+#define FALLBACK_STOP   0x4f4b4f4bu     /* "OKOK" */
 #define ROLE_MAGIC      0x52550000u     /* "RU" */
 #define ROLE_GOLDEN     0
 #define ROLE_APPLICATION 1
@@ -312,18 +316,51 @@ void fpga_update_switch(void)
 		role() == ROLE_GOLDEN ? "golden" : "application");
 }
 
+/*
+ * The image works: the network is up. Stop the FPGA's fallback timer, which would reload the
+ * golden image (remote_update.vhd), and mark the image confirmed.
+ */
 static void confirm(struct k_work *work)
 {
 	struct state_record s;
 
 	ARG_UNUSED(work);
-	if (role() == ROLE_APPLICATION && read_state(&s) && s.confirmed != CLEARED) {
+	if (role() != ROLE_APPLICATION) {
+		return;
+	}
+	if (reg_read(REG_FALLBACK) & FALLBACK_ARMED) {
+		sys_write32(FALLBACK_STOP, REGISTERS + 4 * REG_FALLBACK);
+		LOG_INF("FPGA fallback timer stopped, %u s left", reg_read(REG_FALLBACK) >> 16);
+	}
+	if (read_state(&s) && s.confirmed != CLEARED) {
 		clear_flag(offsetof(struct state_record, confirmed));
 		LOG_INF("FPGA application image %u confirmed", s.sequence);
 	}
 }
 
 static K_WORK_DELAYABLE_DEFINE(confirm_work, confirm);
+
+/*
+ * A request served over the network: a TCP connection has been accepted and answered, so
+ * frames have gone both ways through the FPGA's MAC. The confirmation follows
+ * CONFIG_FW_UPDATE_FPGA_CONFIRM_S later.
+ */
+void fpga_update_network_works(void)
+{
+	static atomic_t seen;
+
+	if (role() == ROLE_APPLICATION && atomic_cas(&seen, 0, 1)) {
+		k_work_schedule(&confirm_work, K_SECONDS(CONFIG_FW_UPDATE_FPGA_CONFIRM_S));
+	}
+}
+
+static void confirm_when_the_network_works(void)
+{
+	if (reg_read(REG_FALLBACK) & FALLBACK_ARMED) {
+		LOG_INF("FPGA fallback timer: the golden image in %u s unless a request is served",
+			reg_read(REG_FALLBACK) >> 16);
+	}
+}
 
 /* the golden image's decision at boot, see fpga_update.h */
 static int fpga_update_boot(void)
@@ -336,7 +373,7 @@ static int fpga_update_boot(void)
 		return 0;       /* a design without remote_update */
 	}
 	if (r == ROLE_APPLICATION) {
-		k_work_schedule(&confirm_work, K_SECONDS(CONFIG_FW_UPDATE_FPGA_CONFIRM_S));
+		confirm_when_the_network_works();
 		return 0;
 	}
 	valid = read_state(&s);
@@ -375,9 +412,17 @@ int fpga_update_status(char *buf, size_t size)
 	int r = role();
 	int len;
 
+	fpga_update_network_works();
 	len = snprintf(buf, size, "{\"role\":\"%s\",\"fell_back\":%s",
 		       r == ROLE_GOLDEN ? "golden" : r == ROLE_APPLICATION ? "application" : "none",
 		       r >= 0 && fell_back() ? "true" : "false");
+	if (r == ROLE_APPLICATION) {
+		uint32_t fallback = reg_read(REG_FALLBACK);
+
+		/* 0 with an image without the timer */
+		len += snprintf(buf + len, size - len, ",\"fallback_s\":%u",
+				fallback & FALLBACK_ARMED ? fallback >> 16 : 0);
+	}
 	if (read_state(&s)) {
 		len += snprintf(buf + len, size - len,
 				",\"image\":{\"sequence\":%u,\"size\":%u,\"crc32\":\"%08x\","

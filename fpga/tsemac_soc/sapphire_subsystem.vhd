@@ -19,6 +19,7 @@ library ieee;
 -- peripheral clock (Efinix's design: 100 MHz) and the clock of the scope ports. The SoC is
 -- held in reset until the PLL is locked and the HyperRAM calibrated.
 entity sapphire_subsystem is
+    generic(g_own_ethernet_mac : boolean := false);   -- ethernet_mac in place of the TSEMAC
     port (
         pll_locked  : in std_logic
         ;ram_clk    : in std_logic     -- 200 MHz
@@ -691,7 +692,7 @@ begin
                     rwds_hi => hbc_rwds_IN_HI(0), rwds_lo => hbc_rwds_IN_LO(0));
 ------------------------------------------------------------------------
     u_ethernet : entity work.ethernet_subsystem
-    generic map(g_axi_width => 64)
+    generic map(g_axi_width => 64, g_own_mac => g_own_ethernet_mac)
     port map(
         io_systemReset         => io_systemReset
         ,io_ddrMasterReset     => io_ddrMaster0Reset

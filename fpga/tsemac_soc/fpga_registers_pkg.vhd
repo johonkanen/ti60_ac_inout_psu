@@ -11,7 +11,7 @@
 --   740..759        20      sigma-delta currents        source/adc/sdm_adc.vhd
 --   760..765         6      gate driver supplies        tsemac_soc/gate_power.vhd
 --   780..788         9      the DHB's bursts and runs   tsemac_soc/dhb_test.vhd
---   800..802         3      remote update               tsemac_soc/remote_update/remote_update.vhd
+--   800..803         4      remote update               tsemac_soc/remote_update/remote_update.vhd
 --   900..995        96      measurement scaler          source/measurements/measurement_scaler.vhd
 --   1100..1111      12      DHB voltage control         source/control/dhb_voltage_controller.vhd
 --   1120..1126       7      DHB protection              source/control/dhb_protection.vhd
@@ -42,7 +42,7 @@ package fpga_registers_pkg is
     constant sdm_adc_registers          : register_block := (740, 20);
     constant gate_power_registers       : register_block := (760, 6);
     constant dhb_test_registers         : register_block := (780, 9);
-    constant remote_update_registers    : register_block := (800, 3);
+    constant remote_update_registers    : register_block := (800, 4);
     constant scaler_registers           : register_block := (900, 96);
     constant dhb_control_registers      : register_block := (1100, 12);
     constant dhb_protection_registers   : register_block := (1120, 7);

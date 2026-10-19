@@ -25,6 +25,16 @@
         <efx:design_file name="scope/scope_subsystem.vhd" version="default" library="default" />
         <efx:design_file name="ethernet/tx_checksum_inserter.vhd" version="default" library="default" />
         <efx:design_file name="ethernet/tsemac_control.vhd" version="default" library="default" />
+        <efx:design_file name="../source/ethernet/ethernet_pkg.vhd" version="default" library="default" />
+        <efx:design_file name="../source/ethernet/mdio_pkg.vhd" version="default" library="default" />
+        <efx:design_file name="../source/ethernet/mdio_driver.vhd" version="default" library="default" />
+        <efx:design_file name="../source/ethernet/cdc_pulse.vhd" version="default" library="default" />
+        <efx:design_file name="../source/ethernet/cdc_snapshot.vhd" version="default" library="default" />
+        <efx:design_file name="../source/ethernet/rgmii_rx.vhd" version="default" library="default" />
+        <efx:design_file name="../source/ethernet/rgmii_tx.vhd" version="default" library="default" />
+        <efx:design_file name="../source/ethernet/ethernet_mac_rx.vhd" version="default" library="default" />
+        <efx:design_file name="../source/ethernet/ethernet_mac_tx.vhd" version="default" library="default" />
+        <efx:design_file name="../source/ethernet/ethernet_mac.vhd" version="default" library="default" />
         <efx:design_file name="ethernet/ethernet_subsystem.vhd" version="default" library="default" />
         <efx:design_file name="ad_subsystem.vhd" version="default" library="default" />
         <efx:design_file name="gate_power.vhd" version="default" library="default" />
