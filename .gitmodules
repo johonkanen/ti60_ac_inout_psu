@@ -16,3 +16,6 @@
 [submodule "fpga/source/fpga_scope"]
 	path = fpga/source/fpga_scope
 	url = https://github.com/johonkanen/fpga_scope
+[submodule "fpga/source/hVHDL_gigabit_ethernet"]
+	path = fpga/source/hVHDL_gigabit_ethernet
+	url = https://github.com/hVHDL/hVHDL_gigabit_ethernet.git

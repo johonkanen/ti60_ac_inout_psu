@@ -18,6 +18,10 @@ comm = root / "source" / "fpga_communication"
 lib.add_source_files(comm / "hVHDL_fpga_interconnect" / "fpga_interconnect_generic_pkg.vhd")
 lib.add_source_files(comm / "fpga_interconnect_16bit_pkg.vhd")
 
+# the Ethernet MAC and the RGMII, MDIO and clock crossing modules it shares with the stack
+gigabit_ethernet = root / "source" / "hVHDL_gigabit_ethernet" / "ethernet_mac"
+lib.add_source_files(gigabit_ethernet / "*.vhd")
+lib.add_source_files(gigabit_ethernet / "sim" / "*.vhd")
 lib.add_source_files(root / "source" / "ethernet" / "*.vhd")
 lib.add_source_files(root / "source" / "ethernet" / "sim" / "*.vhd")
 lib.add_source_files(root / "source" / "hyperram" / "*.vhd")

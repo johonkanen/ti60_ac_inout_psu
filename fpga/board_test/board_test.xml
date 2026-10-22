@@ -13,22 +13,22 @@
         <efx:design_file name="../source/fpga_communication/serial_protocol_generic_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/fpga_communication/communications.vhd" version="default" library="default" />
         <efx:design_file name="../source/hVHDL_memory_library/hyperram/hyperram_pkg.vhd" version="default" library="default" />
-        <efx:design_file name="../source/ethernet/cdc_snapshot.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_gigabit_ethernet/ethernet_mac/cdc_snapshot.vhd" version="default" library="default" />
         <efx:design_file name="../source/hyperram/async_fifo.vhd" version="default" library="default" />
         <efx:design_file name="../source/hyperram/hyperram_ddr_controller.vhd" version="default" library="default" />
         <efx:design_file name="../source/hyperram/hyperram_calibrator.vhd" version="default" library="default" />
         <efx:design_file name="../source/hyperram/hyperram_user_arbiter.vhd" version="default" library="default" />
         <efx:design_file name="../source/hyperram/sync_fifo.vhd" version="default" library="default" />
         <efx:design_file name="../source/hyperram/hyperram_tester.vhd" version="default" library="default" />
-        <efx:design_file name="../source/ethernet/mdio_pkg.vhd" version="default" library="default" />
-        <efx:design_file name="../source/ethernet/mdio_driver.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_gigabit_ethernet/ethernet_mac/mdio_pkg.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_gigabit_ethernet/ethernet_mac/mdio_driver.vhd" version="default" library="default" />
         <efx:design_file name="../source/ethernet/mdio_bus_bridge.vhd" version="default" library="default" />
-        <efx:design_file name="../source/ethernet/ethernet_pkg.vhd" version="default" library="default" />
-        <efx:design_file name="../source/ethernet/rgmii_tx.vhd" version="default" library="default" />
-        <efx:design_file name="../source/ethernet/rgmii_rx.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_gigabit_ethernet/ethernet_mac/ethernet_pkg.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_gigabit_ethernet/ethernet_mac/rgmii_tx.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_gigabit_ethernet/ethernet_mac/rgmii_rx.vhd" version="default" library="default" />
         <efx:design_file name="../source/ethernet/ethernet_frame_generator.vhd" version="default" library="default" />
         <efx:design_file name="../source/ethernet/ethernet_frame_checker.vhd" version="default" library="default" />
-        <efx:design_file name="../source/ethernet/cdc_pulse.vhd" version="default" library="default" />
+        <efx:design_file name="../source/hVHDL_gigabit_ethernet/ethernet_mac/cdc_pulse.vhd" version="default" library="default" />
         <efx:design_file name="../source/ethernet/ethernet_tester.vhd" version="default" library="default" />
         <efx:design_file name="../source/ethernet/ethernet_protocol_pkg.vhd" version="default" library="default" />
         <efx:design_file name="../source/ethernet/dual_clock_byte_ram.vhd" version="default" library="default" />
